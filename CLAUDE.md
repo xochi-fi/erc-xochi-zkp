@@ -8,7 +8,7 @@ ERC Xochi ZKP -- a standard for zero-knowledge compliance proofs on Ethereum. Us
 
 - **Solidity contracts** (src/): Foundry project, Solidity 0.8.28, Cancun EVM
 - **Noir circuits** (circuits/): ZK circuits for each proof type, compiled with nargo/bb
-- **Generated verifiers**: bb generates UltraPlonk Solidity verifiers from compiled circuits
+- **Generated verifiers**: bb generates UltraHonk Solidity verifiers from compiled circuits
 - **One verifier per proof type**: XochiZKPVerifier routes to the correct generated verifier
 
 ## Key Commands

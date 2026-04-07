@@ -24,12 +24,12 @@ This is distinct from view keys (Railgun, Panther) where you trade privately and
 ```
 User's client fetches signed risk signals from screening providers
   -> Computes risk score locally (deterministic formula, published weights)
-  -> Generates ZK proof (Noir circuit, UltraPlonk backend) that:
+  -> Generates ZK proof (Noir circuit, UltraHonk backend) that:
        - Signal values were used (hidden)
        - Published weights were applied correctly (public config hash)
        - Score meets jurisdiction threshold (boolean: yes/no)
   -> Proof submitted on-chain to XochiZKPOracle
-  -> Oracle routes to the correct UltraPlonk verifier via XochiZKPVerifier
+  -> Oracle routes to the correct UltraHonk verifier via XochiZKPVerifier
   -> Attestation recorded on-chain (subject, jurisdiction, timestamp, proof hash)
 ```
 
@@ -58,7 +58,7 @@ The proof also commits to a timestamp and the screening providers used, enabling
  Generated UltraHonk verifiers (bb write_solidity_verifier)
 ```
 
-Each of the 6 proof types has its own Noir circuit and generates a separate UltraPlonk verifier contract via Barretenberg (`bb write_solidity_verifier`).
+Each of the 6 proof types has its own Noir circuit and generates a separate UltraHonk verifier contract via Barretenberg (`bb write_solidity_verifier`).
 
 ## Repository structure
 
@@ -74,9 +74,9 @@ Each of the 6 proof types has its own Noir circuit and generates a separate Ultr
     libraries/
       ProofTypes.sol              # Proof type definitions and encoding
       JurisdictionConfig.sol      # Threshold configurations per jurisdiction
-    XochiZKPVerifier.sol          # Reference verifier (routes to UltraPlonk)
+    XochiZKPVerifier.sol          # Reference verifier (routes to UltraHonk)
     XochiZKPOracle.sol            # Reference oracle (attestation storage)
-    generated/                    # Auto-generated UltraPlonk verifiers (do not edit)
+    generated/                    # Auto-generated UltraHonk verifiers (do not edit)
   test/
     XochiZKPVerifier.t.sol        # Verifier unit tests
     XochiZKPOracle.t.sol          # Oracle unit + fuzz + invariant tests
@@ -174,10 +174,10 @@ Proofs are generated client-side using `@noir-lang/noir_js` and `@aztec/bb.js`:
 
 ```typescript
 import { Noir } from '@noir-lang/noir_js';
-import { UltraPlonkBackend } from '@aztec/bb.js';
+import { UltraHonkBackend } from '@aztec/bb.js';
 import circuit from './circuits/compliance/target/compliance.json';
 
-const backend = new UltraPlonkBackend(circuit.bytecode);
+const backend = new UltraHonkBackend(circuit.bytecode);
 const noir = new Noir(circuit);
 
 // Private inputs never leave the client
@@ -228,7 +228,7 @@ _Testnet deployments pending. Mainnet after audit._
 - [ERC-5564](https://eips.ethereum.org/EIPS/eip-5564) -- stealth addresses (complementary)
 - [ERC-6538](https://eips.ethereum.org/EIPS/eip-6538) -- stealth meta-address registry
 - [Noir Language](https://noir-lang.org/) -- ZK circuit language by Aztec
-- [Barretenberg](https://github.com/AztecProtocol/aztec-packages) -- UltraPlonk proving backend
+- [Barretenberg](https://github.com/AztecProtocol/aztec-packages) -- UltraHonk proving backend
 
 ## Security
 

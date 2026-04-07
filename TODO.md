@@ -2,61 +2,63 @@
 
 ## Current Status
 
-- 63/63 Solidity tests pass (forge test) -- up from 43
-- 43/43 Noir circuit tests pass (nargo test, 7 projects) -- up from 27
+- 109/109 Solidity tests pass (forge test)
+- 36/36 Noir circuit tests pass (nargo test, 7 projects)
 - EIP draft aligned with implementation
-- Tooling: nargo 1.0.0-beta.19, forge 1.5.1, bb 0.72.1 (incompatible)
-- via_ir removed from foundry.toml (no longer needed)
+- Tooling: nargo 1.0.0-beta.19, forge 1.5.1, bb 4.0.0-nightly.20260120
+- Gas snapshot captured (.gas-snapshot)
+- Real proof fixtures for compliance + risk_score circuits
 
 ## Completed Security Fixes
 
 ### Circuit fixes
-- [x] Non-membership u64 truncation -- added range checks enforcing all values fit in u64 before comparison
-- [x] Risk score overflow -- added MAX_WEIGHT (10000) constraint preventing u32 overflow in weighted sum
-- [x] Provider set hash array size -- added assertion enforcing N <= MAX_PROVIDERS in compute_provider_set_hash
-- [x] Zero-value provider ambiguity -- active providers now require non-zero IDs; inactive slots must be fully zeroed
-- [x] Anti-structuring floor overflow -- added MAX_REPORTING_THRESHOLD guard preventing u64 overflow in floor calc
-- [x] Pedersen security audit -- documented homomorphic properties, confirmed no circuit exploits them
+- [x] Non-membership u64 truncation -- range checks enforcing values fit in u64 before comparison
+- [x] Risk score overflow -- MAX_WEIGHT (10000) constraint preventing u32 overflow
+- [x] Risk score weight_sum validation -- circuit asserts computed_weight_sum == weight_sum
+- [x] Provider set hash array size -- assertion enforcing N <= MAX_PROVIDERS
+- [x] Zero-value provider ambiguity -- active providers require non-zero IDs
+- [x] Anti-structuring floor overflow -- MAX_REPORTING_THRESHOLD guard
+- [x] Pedersen security audit -- homomorphic properties documented, no circuit exploits them
 
 ### Solidity fixes
-- [x] Proof replay protection -- added _usedProofs mapping, ProofAlreadyUsed error
-- [x] meetsThreshold always-true -- documented as intentional (failed proofs revert at verifier)
-- [x] proofType-publicInputs semantic validation -- _validateComplianceInputs checks jurisdiction and providerSetHash match public inputs
-- [x] providerSetHash verified against public inputs -- extracted from proof's public inputs, no longer caller-trusted
-- [x] Attestation history pagination -- added getAttestationHistoryPaginated(subject, jurisdiction, offset, limit)
-- [x] Ownership transfer timeout -- 48-hour deadline on both Verifier and Oracle pendingOwner
-- [x] via_ir removed -- contracts compile without IR pipeline (was not actually needed)
+- [x] IUltraVerifier view mismatch -- verify() now view, cascaded through all interfaces
+- [x] Public input validation for all 6 proof types (was only COMPLIANCE + RISK_SCORE)
+- [x] TOCTOU elimination -- verifier address resolved once, used for both verify and record
+- [x] Proof hash keyed on (proof, proofType) -- prevents cross-type collisions
+- [x] Public input alignment check -- rejects inputs where length % 32 != 0
+- [x] Merkle root registry -- MEMBERSHIP/NON_MEMBERSHIP/ATTESTATION validate against registered roots
+- [x] Reporting threshold registry -- PATTERN validates against registered thresholds
+- [x] Config revocation -- revokeConfig() with CannotRevokeCurrentConfig guard
+- [x] Proof replay protection -- _usedProofs mapping, ProofAlreadyUsed error
+- [x] Attestation history pagination -- getAttestationHistoryPaginated()
+- [x] Ownership transfer timeout -- 48-hour deadline on both contracts
 
 ### Tests added
-- [x] Proof replay rejection test
-- [x] Jurisdiction mismatch / providerSetHash mismatch tests
-- [x] Paginated history test
-- [x] Concurrent multi-jurisdiction attestation tests
-- [x] Independent expiry per jurisdiction test
-- [x] Ownership transfer expiry + re-initiation tests
-- [x] Non-compliance proof type bypasses input validation test
-- [x] Fuzz: TTL valid range, TTL out of range, expiry boundary, invalid jurisdiction, config versioning
-- [x] Verifier upgrade scenarios (new verifier used, other types unaffected)
-- [x] Fuzz: invalid proof type for verify and setVerifier
-- [x] Circuit main() tests for all 6 circuits with valid witnesses
+- [x] Proof replay, jurisdiction mismatch, providerSetHash mismatch
+- [x] Unaligned public inputs rejection
+- [x] Merkle root validation (MEMBERSHIP, NON_MEMBERSHIP, ATTESTATION)
+- [x] Reporting threshold validation (PATTERN)
+- [x] Cross-type proof replay allowed (different proofType = different hash)
+- [x] TTL boundary precision (valid at exact expiry, invalid 1s after)
+- [x] Config revocation (blocks submission, revert not owner, cannot revoke current)
+- [x] View verifier prevents reentrancy (TOCTOU test)
+- [x] Fuzz: expired attestation never valid, replay always reverts, attestation fields consistent
+- [x] Fuzz: revoked config blocks submission, all proof types, encoding round trips
+- [x] Integration tests with real compliance proofs
+- [x] Circuit main() tests for all 6 circuits
 
-## Blocked
-
-- [ ] **Generate UltraPlonk verifiers** -- bb >= 0.73 fails to extract on macOS ARM (tar format). bb 0.72.1 is incompatible with nargo 1.0.0-beta.19 artifacts. Unblocks: integration tests, real proof fixtures, testnet deployment.
-
-## Next: Once bb is unblocked
-
-- [ ] Generate verification keys: `bb write_vk` for each circuit
-- [ ] Generate Solidity verifiers: `bb contract` -> `src/generated/`
-- [ ] Create `scripts/generate-fixtures.sh` (Prover.toml -> witness -> proof -> fixtures)
-- [ ] Write `test/Integration.t.sol` with real proof verification
-- [ ] Update `script/Deploy.s.sol` to deploy generated verifiers + register them
+### Infrastructure
+- [x] generate-fixtures.sh -- compiles, proves, verifies, generates Solidity verifiers
+- [x] Real proof fixtures for compliance and risk_score
+- [x] Regenerated risk_score verifier from updated circuit
 
 ## Short-term
 
 - [ ] Add CI workflow (GitHub Actions: `forge test` + `nargo test`)
 - [ ] Add `Makefile` with build/test/lint targets
-- [ ] Add pre-commit hooks (solhint, forge fmt)
+- [ ] Add pre-commit hooks (forge fmt check)
+- [ ] Generate proof fixtures for remaining 4 circuits (anti_structuring, tier_verification, membership, non_membership)
+- [ ] Integration tests with real proofs for all 6 proof types
 
 ## Medium-term
 
@@ -67,7 +69,7 @@
 
 ## Pre-deployment
 
-- [ ] Security audit (Solidity + Noir circuits)
+- [ ] External security audit (Solidity + Noir circuits)
 - [ ] Testnet deployment (Sepolia, Base Sepolia)
 - [ ] Documentation site
 - [ ] EIP submission to ethereum/EIPs
@@ -76,9 +78,10 @@
 
 ## Design decisions (documented, not bugs)
 
-- **meetsThreshold always true**: Intentional -- failed proofs revert at verifier, so only compliant proofs are recorded. Field kept for checkCompliance() query interface.
-- **No access control on submitCompliance()**: Anyone can prove compliance for themselves. Restricting to relayers would add centralization without security benefit.
-- **keccak256(proof) as proof hash**: Different valid proofs for the same statement get different hashes. This is correct for replay protection and historical lookup.
-- **Jurisdiction thresholds hardcoded**: By design per ERC spec. Updating requires contract upgrade, which is appropriate for regulatory thresholds.
-- **No batch submission**: Multi-jurisdiction compliance requires separate transactions. Batch could be added later without breaking changes.
-- **Pedersen vs Poseidon2**: Using Pedersen due to Noir API stability. Homomorphic properties documented as not exploitable in current circuit compositions. Migrate when Poseidon2 stabilizes.
+- **meetsThreshold always true**: Failed proofs revert at verifier, so only compliant proofs are recorded. Field kept for checkCompliance() query interface.
+- **No access control on submitCompliance()**: Anyone can prove compliance for themselves. Restricting to relayers would add centralization.
+- **Proof hash keyed on (proof, proofType)**: Different proof types produce different hashes even for identical proof bytes. Prevents cross-type collision.
+- **Jurisdiction thresholds hardcoded**: By design per ERC spec. Updating requires contract upgrade, appropriate for regulatory thresholds.
+- **Pedersen vs Poseidon2**: Using Pedersen due to Noir API stability. Homomorphic properties not exploitable in current circuit compositions. Migrate when Poseidon2 stabilizes.
+- **TTL boundary inclusive**: checkCompliance uses `<=` for expiresAt. Attestation valid for exactly TTL seconds inclusive.
+- **verifier immutable on Oracle**: XochiZKPVerifier address is immutable. Individual per-type verifiers are upgradeable via setVerifier().

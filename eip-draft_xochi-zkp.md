@@ -52,7 +52,7 @@ Implementations MUST support the following proof types. Each type corresponds to
 
 ### Verifier Interface
 
-The verifier routes proof verification to per-proof-type verification contracts. Each circuit produces a separate verifier via the ZK backend (e.g., `bb contract` for UltraPlonk).
+The verifier routes proof verification to per-proof-type verification contracts. Each circuit produces a separate verifier via the ZK backend (e.g., `bb write_solidity_verifier` for Barretenberg's UltraHonk).
 
 ```solidity
 interface IXochiZKPVerifier {
@@ -119,6 +119,8 @@ interface IXochiZKPOracle {
     event ConfigRevoked(bytes32 indexed configHash);
     event MerkleRootRegistered(bytes32 indexed merkleRoot);
     event MerkleRootRevoked(bytes32 indexed merkleRoot);
+    event ReportingThresholdRegistered(bytes32 indexed threshold);
+    event ReportingThresholdRevoked(bytes32 indexed threshold);
 
     /// @notice Submit a compliance proof and record the attestation
     /// @param jurisdictionId Target jurisdiction (0=EU, 1=US, 2=UK, 3=SG)
@@ -216,15 +218,36 @@ Implementations MUST validate public inputs semantically for each proof type bef
 
 Public inputs MUST be 32-byte aligned. Implementations MUST reject `publicInputs` where `length % 32 != 0`.
 
+The following validation MUST be performed per proof type:
+
+| Proof Type     | Validated Fields                                    | Registry                  |
+| -------------- | --------------------------------------------------- | ------------------------- |
+| COMPLIANCE     | jurisdiction_id, provider_set_hash, config_hash     | Config hash registry      |
+| RISK_SCORE     | config_hash                                         | Config hash registry      |
+| PATTERN        | reporting_threshold, tx_set_hash != 0               | Reporting threshold registry |
+| ATTESTATION    | merkle_root                                         | Merkle root registry      |
+| MEMBERSHIP     | merkle_root                                         | Merkle root registry      |
+| NON_MEMBERSHIP | merkle_root                                         | Merkle root registry      |
+
+### Validation Registries
+
+Implementations MUST maintain on-chain registries for values that public inputs are validated against. These registries prevent context-spoofing attacks where a proof generated for one context is submitted in a different context.
+
+**Config hash registry.** Tracks valid provider weight configuration hashes. New hashes are added when the administrator updates the configuration. Historical hashes SHOULD be revocable (see Provider Weight Publication). The currently active configuration MUST NOT be revocable.
+
+**Merkle root registry.** Tracks valid merkle roots for MEMBERSHIP, NON_MEMBERSHIP, and ATTESTATION proofs. Roots MUST be registered by the administrator before proofs referencing them can be accepted. Roots SHOULD be revocable when the underlying set is superseded or compromised.
+
+**Reporting threshold registry.** Tracks valid reporting thresholds for PATTERN (anti-structuring) proofs. Each jurisdiction defines its own reporting threshold (e.g., $10,000 for US BSA). Thresholds MUST be registered before proofs referencing them can be accepted.
+
 ### Risk Score Computation
 
 The risk score formula MUST be deterministic and publicly verifiable:
 
-```
-RiskScore_bps = SUM(signal_i * weight_i) * 100 / weight_sum
-```
+$$\text{RiskScore}_{\text{bps}} = \frac{\displaystyle\sum_{i=1}^{N} \text{signal}_i \cdot \text{weight}_i}{W} \times 100$$
 
-Where `signal_i` are provider screening results (0-100), `weight_i` are published provider weights, and `weight_sum` is the sum of all active weights. The result is in basis points (0-10000).
+where $\text{signal}_i \in [0, 100]$ are provider screening results, $\text{weight}_i$ are published provider weights, $W = \sum_{i=1}^{N} \text{weight}_i$ is the weight sum, and $N \leq 8$ is the number of active providers. The result is in basis points ($0$-$10000$, i.e., $0.00\%$-$100.00\%$).
+
+Circuits that accept `weight_sum` as a private input MUST constrain it to equal the actual sum of the `weights` array. Without this constraint, a malicious prover could pass an arbitrary denominator to inflate or deflate the computed score.
 
 The ZK proof commits to:
 
@@ -232,6 +255,24 @@ The ZK proof commits to:
 - Weights used (public via config_hash, must match published config)
 - Resulting score (hidden)
 - Whether jurisdiction threshold was crossed (revealed as boolean)
+
+### Hash Function Requirements
+
+Circuits MUST use a collision-resistant hash function for all commitments (provider set hashes, config hashes, Merkle trees, credential hashes). The reference implementation uses Pedersen hash, which is efficient in ZK circuits and available in the Noir standard library.
+
+Pedersen commitments are additively homomorphic over the underlying elliptic curve. This is safe provided:
+
+1. Hash outputs are used only as opaque commitments compared via equality.
+2. No circuit composes hash outputs arithmetically (e.g., `H(x) + H(y)`).
+3. All hash calls use fixed-arity inputs to prevent length-extension reinterpretation.
+
+Implementations MAY migrate to Poseidon2 when high-level APIs stabilize in the circuit language, as Poseidon2 provides stronger random-oracle properties.
+
+### Non-Membership Proof Security
+
+The non-membership circuit proves that an element $e$ is NOT in a sorted Merkle tree by demonstrating adjacency: there exist two consecutive leaves $l$ and $h$ in the tree such that $l < e < h$.
+
+Because Noir Field elements are ~254 bits but the comparison operates on u64, circuits MUST range-check all three values (`element`, `low_leaf`, `high_leaf`) to fit within u64 before casting. Without this check, a ~254-bit Field value could wrap when truncated to u64, producing a false non-membership proof.
 
 ### Retroactive Flagging
 
@@ -264,7 +305,7 @@ This ERC introduces new interfaces and does not modify existing standards. It is
 
 ## Security Considerations
 
-**Proof soundness.** The security of the system depends on the ZK proof system used. Implementations MUST use a proof system with at least 128-bit security. Groth16, PLONK, and UltraPlonk (Noir/Aztec) are acceptable.
+**Proof soundness.** The security of the system depends on the ZK proof system used. Implementations MUST use a proof system with at least 128-bit security. Groth16, PLONK, and UltraHonk (Noir/Aztec) are acceptable.
 
 **Provider collusion.** If all screening providers collude, they could issue false clean signals. Implementations SHOULD require attestations from multiple independent providers and weight them based on enforcement track record.
 
@@ -288,6 +329,31 @@ This ERC introduces new interfaces and does not modify existing standards. It is
 **Config and root revocation.** Provider configuration hashes and merkle roots SHOULD be revocable. Without revocation, a discovered-to-be-flawed configuration or a compromised merkle tree remains accepted forever. Implementations MUST NOT allow revoking the currently active provider configuration.
 
 **Verifier TOCTOU.** Implementations MUST resolve the verifier address once per submission and use it for both proof verification and attestation recording. A time-of-check/time-of-use gap between address resolution and proof verification could allow the recorded `verifierUsed` to diverge from the actual verifier if a verifier upgrade occurs mid-transaction.
+
+## Reference Implementation
+
+A reference implementation is provided at [erc-xochi-zkp](https://github.com/xochi-fi/erc-xochi-zkp):
+
+- **Solidity contracts**: `src/XochiZKPVerifier.sol`, `src/XochiZKPOracle.sol` (Foundry, Solidity 0.8.28)
+- **Noir circuits**: `circuits/` (one per proof type, compiled with nargo 1.0)
+- **Generated verifiers**: `src/generated/` (UltraHonk verifiers generated by Barretenberg)
+- **Test suite**: 109 Solidity tests (unit, fuzz, invariant, integration with real proofs), 36 circuit tests
+
+## Test Vectors
+
+The reference implementation includes binary proof fixtures in `test/fixtures/` for end-to-end verification. Each fixture contains:
+
+- `proof` -- the raw UltraHonk proof bytes
+- `public_inputs` -- the packed bytes32 public inputs
+
+The compliance fixture uses the following witness:
+
+- Single provider (id=1, weight=100), signal=20 (low risk)
+- Jurisdiction: EU (id=0), threshold: 7100 bps
+- Computed score: 2000 bps (below threshold, meets_threshold=true)
+- config_hash: `0x18574f427f33c6c77af53be06544bd749c9a1db855599d950af61ea613df8405` (pedersen_hash of weight config)
+
+Fixtures can be regenerated via `scripts/generate-fixtures.sh`.
 
 ## Copyright
 

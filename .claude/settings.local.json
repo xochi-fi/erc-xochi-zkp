@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s \"https://api.github.com/repos/noir-lang/noir/releases/tags/v1.0.0-beta.19\")",
+      "Bash(export PATH=\"$HOME/.nargo/bin:$PATH\")",
+      "Bash(nargo --help)",
+      "Bash(/Users/droo/.config/.foundry/bin/forge test:*)",
+      "Bash(PATH=\"/Users/droo/.config/.foundry/bin:$PATH\" forge build 2>&1)",
+      "Bash(PATH=\"/Users/droo/.config/.foundry/bin:$PATH\" forge test -vvv 2>&1)",
+      "Bash(bb write_solidity_verifier -k ./target/vk/vk -o ./target/Verifier_evm.sol -t evm)"
+    ]
+  },
+  "enabledMcpjsonServers": [
+    "context7",
+    "blockscout",
+    "datadog"
+  ]
+}

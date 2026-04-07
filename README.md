@@ -1,6 +1,6 @@
 # erc-xochi-zkp
 
-Reference implementation for the Xochi ZKP Compliance Oracle -- a standard for zero-knowledge compliance proofs on Ethereum.
+Reference implementation for the Xochi ZKP Compliance Oracle, a standard for zero-knowledge compliance proofs on Ethereum.
 
 ## What this is
 
@@ -223,12 +223,12 @@ _Testnet deployments pending. Mainnet after audit._
 
 ## Related
 
-- [ERC Draft](eip-draft_xochi-zkp.md) -- the EIP specification
-- [nahualli](https://github.com/xochi-fi/nahualli) -- vanity stealth key grinder for ERC-5564
-- [ERC-5564](https://eips.ethereum.org/EIPS/eip-5564) -- stealth addresses (complementary)
-- [ERC-6538](https://eips.ethereum.org/EIPS/eip-6538) -- stealth meta-address registry
-- [Noir Language](https://noir-lang.org/) -- ZK circuit language by Aztec
-- [Barretenberg](https://github.com/AztecProtocol/aztec-packages) -- UltraHonk proving backend
+- [ERC Draft](eip-draft_xochi-zkp.md): the EIP specification
+- [nahualli](https://github.com/xochi-fi/nahualli): vanity stealth key grinder for ERC-5564
+- [ERC-5564](https://eips.ethereum.org/EIPS/eip-5564): stealth addresses (complementary)
+- [ERC-6538](https://eips.ethereum.org/EIPS/eip-6538): stealth meta-address registry
+- [Noir Language](https://noir-lang.org/): ZK circuit language by Aztec
+- [Barretenberg](https://github.com/AztecProtocol/aztec-packages): UltraHonk proving backend
 
 ## Security
 
@@ -236,12 +236,12 @@ No external audit has been performed yet. Do not use in production.
 
 The reference implementation includes defenses for:
 
-- **Public input validation** -- all 6 proof types validate semantic correctness (config hashes, merkle roots, reporting thresholds) before forwarding to the ZK verifier
-- **Proof replay prevention** -- proof hashes keyed on `(proof, proofType)` to prevent cross-type collisions
-- **TOCTOU elimination** -- verifier address resolved once per submission, used for both verification and attestation recording
-- **Alignment checks** -- public inputs must be 32-byte aligned
-- **Config/root revocation** -- compromised configurations and merkle roots can be revoked by the oracle administrator
-- **View verification** -- all generated verifiers and the verification path are `view`, preventing reentrancy during proof verification
+- **Public input validation**: all 6 proof types validate semantic correctness (config hashes, merkle roots, reporting thresholds) before forwarding to the ZK verifier
+- **Proof replay prevention**: proof hashes keyed on `(proof, proofType)` to prevent cross-type collisions
+- **TOCTOU elimination**: verifier address resolved once per submission, used for both verification and attestation recording
+- **Alignment checks**: public inputs must be 32-byte aligned
+- **Config/root revocation**: compromised configurations and merkle roots can be revoked by the oracle administrator
+- **View verification**: all generated verifiers and the verification path are `view`, preventing reentrancy during proof verification
 
 If you find a vulnerability, email security@xochi.fi.
 

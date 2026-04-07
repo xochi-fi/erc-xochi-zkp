@@ -55,7 +55,7 @@ fn main(
             assert(signals[i] <= 100, "Signal must be 0-100");
             assert(weights[i] > 0, "Active provider weight must be positive");
             // Active providers must have non-zero IDs to prevent confusion
-            // with inactive (zeroed) slots -- a provider with ID=0 and weight=0
+            // with inactive (zeroed) slots: a provider with ID=0 and weight=0
             // would be indistinguishable from an inactive slot in the hash.
             assert(provider_ids[i] != 0, "Active provider ID must be non-zero");
         } else {

@@ -36,7 +36,7 @@ fn main(
     is_member: pub bool,               // the result
 ) {
     // 1. Compute the leaf hash from the element
-    //    leaf = H(element, set_id) -- binding the leaf to the specific set
+    //    leaf = H(element, set_id), binding the leaf to the specific set
     let leaf = hash2(element, set_id);
 
     // 2. Compute the Merkle root from the leaf and path

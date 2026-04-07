@@ -12,26 +12,26 @@
 ## Completed Security Fixes
 
 ### Circuit fixes
-- [x] Non-membership u64 truncation -- range checks enforcing values fit in u64 before comparison
-- [x] Risk score overflow -- MAX_WEIGHT (10000) constraint preventing u32 overflow
-- [x] Risk score weight_sum validation -- circuit asserts computed_weight_sum == weight_sum
-- [x] Provider set hash array size -- assertion enforcing N <= MAX_PROVIDERS
-- [x] Zero-value provider ambiguity -- active providers require non-zero IDs
-- [x] Anti-structuring floor overflow -- MAX_REPORTING_THRESHOLD guard
-- [x] Pedersen security audit -- homomorphic properties documented, no circuit exploits them
+- [x] Non-membership u64 truncation:range checks enforcing values fit in u64 before comparison
+- [x] Risk score overflow:MAX_WEIGHT (10000) constraint preventing u32 overflow
+- [x] Risk score weight_sum validation:circuit asserts computed_weight_sum == weight_sum
+- [x] Provider set hash array size:assertion enforcing N <= MAX_PROVIDERS
+- [x] Zero-value provider ambiguity:active providers require non-zero IDs
+- [x] Anti-structuring floor overflow:MAX_REPORTING_THRESHOLD guard
+- [x] Pedersen security audit:homomorphic properties documented, no circuit exploits them
 
 ### Solidity fixes
-- [x] IUltraVerifier view mismatch -- verify() now view, cascaded through all interfaces
+- [x] IUltraVerifier view mismatch:verify() now view, cascaded through all interfaces
 - [x] Public input validation for all 6 proof types (was only COMPLIANCE + RISK_SCORE)
-- [x] TOCTOU elimination -- verifier address resolved once, used for both verify and record
-- [x] Proof hash keyed on (proof, proofType) -- prevents cross-type collisions
-- [x] Public input alignment check -- rejects inputs where length % 32 != 0
-- [x] Merkle root registry -- MEMBERSHIP/NON_MEMBERSHIP/ATTESTATION validate against registered roots
-- [x] Reporting threshold registry -- PATTERN validates against registered thresholds
-- [x] Config revocation -- revokeConfig() with CannotRevokeCurrentConfig guard
-- [x] Proof replay protection -- _usedProofs mapping, ProofAlreadyUsed error
-- [x] Attestation history pagination -- getAttestationHistoryPaginated()
-- [x] Ownership transfer timeout -- 48-hour deadline on both contracts
+- [x] TOCTOU elimination:verifier address resolved once, used for both verify and record
+- [x] Proof hash keyed on (proof, proofType):prevents cross-type collisions
+- [x] Public input alignment check:rejects inputs where length % 32 != 0
+- [x] Merkle root registry:MEMBERSHIP/NON_MEMBERSHIP/ATTESTATION validate against registered roots
+- [x] Reporting threshold registry:PATTERN validates against registered thresholds
+- [x] Config revocation:revokeConfig() with CannotRevokeCurrentConfig guard
+- [x] Proof replay protection:_usedProofs mapping, ProofAlreadyUsed error
+- [x] Attestation history pagination:getAttestationHistoryPaginated()
+- [x] Ownership transfer timeout:48-hour deadline on both contracts
 
 ### Tests added
 - [x] Proof replay, jurisdiction mismatch, providerSetHash mismatch
@@ -48,7 +48,7 @@
 - [x] Circuit main() tests for all 6 circuits
 
 ### Infrastructure
-- [x] generate-fixtures.sh -- compiles, proves, verifies, generates Solidity verifiers
+- [x] generate-fixtures.sh:compiles, proves, verifies, generates Solidity verifiers
 - [x] Real proof fixtures for compliance and risk_score
 - [x] Regenerated risk_score verifier from updated circuit
 

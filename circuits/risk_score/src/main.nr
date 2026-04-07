@@ -10,10 +10,10 @@
 ///
 /// Public inputs:
 ///   - proof_type: 0x01 (threshold) or 0x02 (range)
-///   - direction: for threshold -- 1=GT, 2=LT
+///   - direction: for threshold, 1=GT, 2=LT
 ///   - bound_lower: lower bound (threshold value for 0x01, range floor for 0x02)
 ///   - bound_upper: upper bound (unused for 0x01, range ceiling for 0x02)
-///   - result: boolean -- does the score satisfy the condition?
+///   - result: boolean, does the score satisfy the condition?
 ///   - config_hash: hash of published weight configuration
 ///
 /// Private inputs:
@@ -177,7 +177,7 @@ fn test_main_revert_weight_sum_mismatch() {
     }
     let config = hash8(weight_fields);
 
-    // Pass weight_sum=1 instead of correct 100 -- should fail
+    // Pass weight_sum=1 instead of correct 100, should fail
     main(signals, weights, 1, PROOF_THRESHOLD, DIRECTION_GT, 0, 0, true, config);
 }
 

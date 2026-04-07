@@ -21,7 +21,7 @@ Public blockchains force a binary choice between transparency and privacy. Trans
 
 Existing approaches to compliant privacy fall short:
 
-- **View keys** (Railgun, Panther): Trade privately, then reveal raw transaction data to auditors on request. This leaks the data -- it's just delayed transparency.
+- **View keys** (Railgun, Panther): Trade privately, then reveal raw transaction data to auditors on request. This leaks the data. It's just delayed transparency.
 - **TEE-based compliance** (various): Rely on hardware trust assumptions that have been broken repeatedly (SGX side channels, key extraction).
 - **Compliance-by-exclusion** (Privacy Pools): Prove you're NOT in a bad set. Doesn't prove you ARE compliant with specific jurisdiction rules.
 
@@ -34,21 +34,21 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 ### Terminology
 
 - **providerSetHash**: A commitment to the specific set of screening providers and their weights used for a particular compliance proof. Included in each attestation for retroactive verification.
-- **providerConfigHash**: A hash of the global provider weight configuration published by the oracle administrator. Versioned on-chain -- weight changes push a new entry to the config history.
+- **providerConfigHash**: A hash of the global provider weight configuration published by the oracle administrator. Versioned on-chain; weight changes push a new entry to the config history.
 - **attestation TTL**: The duration (in seconds) for which a compliance attestation remains valid after submission. Expired attestations remain queryable via `getHistoricalProof()` but are not considered valid by `checkCompliance()`.
 
 ### Proof Types
 
 Implementations MUST support the following proof types. Each type corresponds to a separate ZK circuit with its own verification key.
 
-| Type ID | Name           | Circuit            | Public inputs                                                                          | Private inputs                                              |
-| ------- | -------------- | ------------------ | -------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
-| 0x01    | Compliance     | compliance         | jurisdiction_id, provider_set_hash, config_hash, timestamp, meets_threshold            | signals, weights, weight_sum, provider_ids, num_providers   |
-| 0x02    | Risk Score     | risk_score         | proof_type (threshold/range), direction, bound_lower, bound_upper, result, config_hash | signals, weights, weight_sum                                |
-| 0x03    | Pattern        | anti_structuring   | analysis_type, result, reporting_threshold, time_window, tx_set_hash                   | amounts, timestamps, num_transactions                       |
-| 0x04    | Attestation    | tier_verification  | provider_id, credential_type, is_valid, merkle_root, current_timestamp                 | credential_hash, subject, attribute, expiry, merkle_proof   |
-| 0x05    | Membership     | membership         | merkle_root, set_id, timestamp, is_member                                              | element, merkle_index, merkle_path                          |
-| 0x06    | Non-membership | non_membership     | merkle_root, set_id, timestamp, is_non_member                                          | element, low_leaf, high_leaf, low/high indices, low/high paths |
+| Type ID | Name           | Circuit           | Public inputs                                                                          | Private inputs                                                 |
+| ------- | -------------- | ----------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| 0x01    | Compliance     | compliance        | jurisdiction_id, provider_set_hash, config_hash, timestamp, meets_threshold            | signals, weights, weight_sum, provider_ids, num_providers      |
+| 0x02    | Risk Score     | risk_score        | proof_type (threshold/range), direction, bound_lower, bound_upper, result, config_hash | signals, weights, weight_sum                                   |
+| 0x03    | Pattern        | anti_structuring  | analysis_type, result, reporting_threshold, time_window, tx_set_hash                   | amounts, timestamps, num_transactions                          |
+| 0x04    | Attestation    | tier_verification | provider_id, credential_type, is_valid, merkle_root, current_timestamp                 | credential_hash, subject, attribute, expiry, merkle_proof      |
+| 0x05    | Membership     | membership        | merkle_root, set_id, timestamp, is_member                                              | element, merkle_index, merkle_path                             |
+| 0x06    | Non-membership | non_membership    | merkle_root, set_id, timestamp, is_non_member                                          | element, low_leaf, high_leaf, low/high indices, low/high paths |
 
 ### Verifier Interface
 
@@ -177,12 +177,12 @@ interface IXochiZKPOracle {
 
 Implementations MUST publish jurisdiction thresholds openly. Risk scores are expressed in basis points (0-10000 = 0.00%-100.00%).
 
-| ID  | Jurisdiction | Low (bps)   | Medium (bps) | High / Filing trigger (bps) |
-| --- | ------------ | ----------- | ------------ | --------------------------- |
-| 0   | EU (AMLD6)   | 0-3099      | 3100-7099    | >=7100                      |
-| 1   | US (BSA)     | 0-2599      | 2600-6599    | >=6600                      |
-| 2   | UK (MLR)     | 0-3099      | 3100-7099    | >=7100                      |
-| 3   | Singapore    | 0-3599      | 3600-7599    | >=7600                      |
+| ID  | Jurisdiction | Low (bps) | Medium (bps) | High / Filing trigger (bps) |
+| --- | ------------ | --------- | ------------ | --------------------------- |
+| 0   | EU (AMLD6)   | 0-3099    | 3100-7099    | >=7100                      |
+| 1   | US (BSA)     | 0-2599    | 2600-6599    | >=6600                      |
+| 2   | UK (MLR)     | 0-3099    | 3100-7099    | >=7100                      |
+| 3   | Singapore    | 0-3599    | 3600-7599    | >=7600                      |
 
 ### Attestation Lifecycle
 
@@ -199,7 +199,7 @@ Compliance attestations have a configurable time-to-live (TTL):
 
 Implementations SHOULD publish provider weights as an on-chain configuration hash. Weight changes MUST emit `ProviderWeightsUpdated` with the new configuration hash, timestamp, and an optional `metadataURI` pointing to the full configuration (e.g., on IPFS or Arweave).
 
-Provider configuration MUST be versioned. Implementations SHOULD maintain a history of configuration hashes to support retroactive verification -- determining which weights were active when a particular proof was generated. Implementations SHOULD support revoking historical configuration hashes when a configuration is discovered to be flawed. The currently active configuration MUST NOT be revocable.
+Provider configuration MUST be versioned. Implementations SHOULD maintain a history of configuration hashes to support retroactive verification: determining which weights were active when a particular proof was generated. Implementations SHOULD support revoking historical configuration hashes when a configuration is discovered to be flawed. The currently active configuration MUST NOT be revocable.
 
 ### Proof Type Routing
 
@@ -220,14 +220,14 @@ Public inputs MUST be 32-byte aligned. Implementations MUST reject `publicInputs
 
 The following validation MUST be performed per proof type:
 
-| Proof Type     | Validated Fields                                    | Registry                  |
-| -------------- | --------------------------------------------------- | ------------------------- |
-| COMPLIANCE     | jurisdiction_id, provider_set_hash, config_hash     | Config hash registry      |
-| RISK_SCORE     | config_hash                                         | Config hash registry      |
-| PATTERN        | reporting_threshold, tx_set_hash != 0               | Reporting threshold registry |
-| ATTESTATION    | merkle_root                                         | Merkle root registry      |
-| MEMBERSHIP     | merkle_root                                         | Merkle root registry      |
-| NON_MEMBERSHIP | merkle_root                                         | Merkle root registry      |
+| Proof Type     | Validated Fields                                | Registry                     |
+| -------------- | ----------------------------------------------- | ---------------------------- |
+| COMPLIANCE     | jurisdiction_id, provider_set_hash, config_hash | Config hash registry         |
+| RISK_SCORE     | config_hash                                     | Config hash registry         |
+| PATTERN        | reporting_threshold, tx_set_hash != 0           | Reporting threshold registry |
+| ATTESTATION    | merkle_root                                     | Merkle root registry         |
+| MEMBERSHIP     | merkle_root                                     | Merkle root registry         |
+| NON_MEMBERSHIP | merkle_root                                     | Merkle root registry         |
 
 ### Validation Registries
 
@@ -295,7 +295,7 @@ This enables proof-of-innocence: counterparties to retroactively flagged address
 
 **Why not Privacy Pools inclusion/exclusion proofs?** Privacy Pools prove set membership ("I'm not in the OFAC set"). This ERC proves compliance with specific rules ("my risk score under jurisdiction X is below threshold Y using providers A, B, C"). Set membership is a subset of what's needed for regulatory compliance.
 
-**Why attestation TTL?** Compliance status is not permanent. A user who was compliant yesterday may not be compliant today -- screening providers update their data continuously. The TTL forces periodic re-attestation while keeping the window configurable per deployment context.
+**Why attestation TTL?** Compliance status is not permanent. A user who was compliant yesterday may not be compliant today. Screening providers update their data continuously. The TTL forces periodic re-attestation while keeping the window configurable per deployment context.
 
 **Why six proof types?** Each proof type maps to a separate ZK circuit with distinct constraint logic. Compliance handles the core risk score check. Risk Score provides standalone threshold/range proofs. Pattern detects structuring behaviors. Attestation verifies credentials from authorized providers. Membership proves inclusion in an authorized set (whitelist). Non-membership proves exclusion from a sanctions list via sorted Merkle tree adjacency. This separation keeps individual circuits small and auditable.
 
@@ -311,7 +311,7 @@ This ERC introduces new interfaces and does not modify existing standards. It is
 
 **Timestamp manipulation.** Proofs commit to block timestamps. Validators could manipulate timestamps by ~15 seconds on Ethereum. This is acceptable for compliance windows measured in days.
 
-**Regulatory acceptance.** This standard provides a technical mechanism for ZK compliance. Whether specific jurisdictions accept ZK proofs as sufficient compliance evidence is a legal question, not a technical one. The VARA (Dubai) definition of "anonymity-enhanced crypto" excludes assets with "mitigating technologies" for traceability -- this standard provides exactly that technology.
+**Regulatory acceptance.** This standard provides a technical mechanism for ZK compliance. Whether specific jurisdictions accept ZK proofs as sufficient compliance evidence is a legal question, not a technical one. The VARA (Dubai) definition of "anonymity-enhanced crypto" excludes assets with "mitigating technologies" for traceability. This standard provides exactly that technology.
 
 **Front-running the oracle.** Compliance proofs are generated before settlement. An adversary who observes a proof submission could infer a trade is about to occur. Implementations SHOULD batch proof submissions or submit them as part of the settlement transaction to minimize information leakage.
 
@@ -343,8 +343,8 @@ A reference implementation is provided at [erc-xochi-zkp](https://github.com/xoc
 
 The reference implementation includes binary proof fixtures in `test/fixtures/` for end-to-end verification. Each fixture contains:
 
-- `proof` -- the raw UltraHonk proof bytes
-- `public_inputs` -- the packed bytes32 public inputs
+- `proof`: the raw UltraHonk proof bytes
+- `public_inputs`: the packed bytes32 public inputs
 
 The compliance fixture uses the following witness:
 

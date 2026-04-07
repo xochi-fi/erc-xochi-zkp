@@ -15,6 +15,9 @@
 ///      (e.g., no circuit checks H(x) + H(y) == H(z)).
 ///   4. Second-preimage resistance holds because all hash calls use fixed-arity inputs
 ///      (hash2, hash3, etc.), so different (a, b) pairs cannot be reinterpreted as (c).
+///   5. Domain separation is achieved implicitly: each hash function (hash2, hash3, hash4,
+///      hash8, hash16, hash32) takes a different number of inputs, so Pedersen produces
+///      distinct commitments for different arities even with overlapping input values.
 /// When Poseidon2 becomes available, migrate to it for stronger random-oracle properties.
 
 use std::hash::pedersen_hash;
@@ -110,6 +113,10 @@ pub global MAX_WEIGHT: u32 = 10000;
 /// Signals are 0-100 (percentage risk from each provider)
 /// Weights are importance factors that sum to weight_sum (each <= MAX_WEIGHT)
 /// Returns the score as a u32 in basis points (0-10000, i.e. 0.00%-100.00%)
+///
+/// NOTE: Integer division truncates remainders (max error < 1 bps).
+/// The Solidity JurisdictionConfig uses percentage scale (0-100); a threshold
+/// of 71 there corresponds to 7100 bps here.
 pub fn compute_risk_score<let N: u32>(
     signals: [u32; N],
     weights: [u32; N],
@@ -129,16 +136,15 @@ pub fn compute_risk_score<let N: u32>(
 /// Get the high-risk threshold for a jurisdiction (in basis points)
 /// Must match Solidity JurisdictionConfig thresholds
 pub fn get_high_threshold(jurisdiction_id: u8) -> u32 {
+    assert(jurisdiction_id <= JURISDICTION_SG, "Invalid jurisdiction");
     if jurisdiction_id == JURISDICTION_EU {
         7100 // 71%
     } else if jurisdiction_id == JURISDICTION_US {
         6600 // 66%
     } else if jurisdiction_id == JURISDICTION_UK {
         7100 // 71%
-    } else if jurisdiction_id == JURISDICTION_SG {
-        7600 // 76%
     } else {
-        0
+        7600 // 76% (JURISDICTION_SG, guarded by assert above)
     }
 }
 

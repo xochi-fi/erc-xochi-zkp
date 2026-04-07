@@ -46,8 +46,9 @@ fn main(
     let membership_valid = computed_root == merkle_root;
     assert(membership_valid == is_member, "Membership result mismatch");
 
-    // 4. Timestamp must be non-zero
-    assert(timestamp != 0, "Timestamp must be non-zero");
+    // 4. Timestamp must be within reasonable bounds
+    assert(timestamp as u64 > 1609459200, "Timestamp before 2021");
+    assert(timestamp as u64 < 1099511627776, "Timestamp unreasonably far future"); // 2^40
 }
 
 // ---------------------------------------------------------------------------

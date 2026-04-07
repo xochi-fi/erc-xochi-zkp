@@ -26,14 +26,49 @@ contract IntegrationTest is Test {
     bytes32 internal constant FIXTURE_PROVIDER_SET_HASH =
         0x14b6becf762f80a24078e62fc9a7eca246b8e406d19962dda817b173f30a94b2;
 
+    /// @dev Merkle root from the membership fixture (element=42, set_id=1, index=0)
+    bytes32 internal constant FIXTURE_MEMBERSHIP_ROOT =
+        0x30211953f68b315a285af9496cdaa51517aba83cb3bb40bdd20b2e42eb189fe6;
+
+    /// @dev Merkle root from the non_membership fixture (element=50, set={10,100}, set_id=1)
+    bytes32 internal constant FIXTURE_NON_MEMBERSHIP_ROOT =
+        0x12d001bc3463cb4d3a745f802dffd80c00a2927f77110d1b0a59b9a3bd787b86;
+
+    /// @dev Merkle root from the tier_verification fixture (provider_id=42, credential KYC basic)
+    bytes32 internal constant FIXTURE_TIER_MERKLE_ROOT =
+        0x15861259068f1398397423d4b3bad764e19c1a68699115ef9ccd090a8a5eba3e;
+
     function setUp() public {
         verifier = new XochiZKPVerifier(owner);
         oracle = new XochiZKPOracle(address(verifier), owner, FIXTURE_CONFIG_HASH);
 
-        // Deploy the generated compliance verifier and register it
-        address complianceVerifier = _deployGeneratedVerifier("compliance");
-        vm.prank(owner);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, complianceVerifier);
+        // Deploy all generated verifiers and register them
+        string[6] memory circuits =
+            ["compliance", "risk_score", "anti_structuring", "tier_verification", "membership", "non_membership"];
+        uint8[6] memory types = [
+            ProofTypes.COMPLIANCE,
+            ProofTypes.RISK_SCORE,
+            ProofTypes.PATTERN,
+            ProofTypes.ATTESTATION,
+            ProofTypes.MEMBERSHIP,
+            ProofTypes.NON_MEMBERSHIP
+        ];
+
+        vm.startPrank(owner);
+        for (uint256 i; i < 6; i++) {
+            address v = _deployGeneratedVerifier(circuits[i]);
+            verifier.setVerifier(types[i], v);
+        }
+
+        // Register merkle roots needed by membership/non_membership/attestation fixtures
+        oracle.registerMerkleRoot(FIXTURE_MEMBERSHIP_ROOT);
+        oracle.registerMerkleRoot(FIXTURE_NON_MEMBERSHIP_ROOT);
+        oracle.registerMerkleRoot(FIXTURE_TIER_MERKLE_ROOT);
+
+        // Register reporting threshold needed by anti_structuring fixture (10000)
+        oracle.registerReportingThreshold(bytes32(uint256(10000)));
+
+        vm.stopPrank();
     }
 
     // -------------------------------------------------------------------------
@@ -113,6 +148,101 @@ contract IntegrationTest is Test {
     }
 
     // -------------------------------------------------------------------------
+    // End-to-end: risk_score proof
+    // -------------------------------------------------------------------------
+
+    function test_realProof_riskScore_verifies() public {
+        (bytes memory proof, bytes memory publicInputs) = _loadFixture("risk_score");
+        bool valid = verifier.verifyProof(ProofTypes.RISK_SCORE, proof, publicInputs);
+        assertTrue(valid);
+    }
+
+    function test_realProof_riskScore_submitAndCheck() public {
+        (bytes memory proof, bytes memory publicInputs) = _loadFixture("risk_score");
+        vm.prank(alice);
+        IXochiZKPOracle.ComplianceAttestation memory att =
+            oracle.submitCompliance(0, ProofTypes.RISK_SCORE, proof, publicInputs, bytes32(0));
+        assertEq(att.subject, alice);
+        assertTrue(att.meetsThreshold);
+    }
+
+    // -------------------------------------------------------------------------
+    // End-to-end: anti_structuring (PATTERN) proof
+    // -------------------------------------------------------------------------
+
+    function test_realProof_pattern_verifies() public {
+        (bytes memory proof, bytes memory publicInputs) = _loadFixture("anti_structuring");
+        bool valid = verifier.verifyProof(ProofTypes.PATTERN, proof, publicInputs);
+        assertTrue(valid);
+    }
+
+    function test_realProof_pattern_submitAndCheck() public {
+        (bytes memory proof, bytes memory publicInputs) = _loadFixture("anti_structuring");
+        vm.prank(alice);
+        IXochiZKPOracle.ComplianceAttestation memory att =
+            oracle.submitCompliance(0, ProofTypes.PATTERN, proof, publicInputs, bytes32(0));
+        assertEq(att.subject, alice);
+        assertTrue(att.meetsThreshold);
+    }
+
+    // -------------------------------------------------------------------------
+    // End-to-end: tier_verification (ATTESTATION) proof
+    // -------------------------------------------------------------------------
+
+    function test_realProof_attestation_verifies() public {
+        (bytes memory proof, bytes memory publicInputs) = _loadFixture("tier_verification");
+        bool valid = verifier.verifyProof(ProofTypes.ATTESTATION, proof, publicInputs);
+        assertTrue(valid);
+    }
+
+    function test_realProof_attestation_submitAndCheck() public {
+        (bytes memory proof, bytes memory publicInputs) = _loadFixture("tier_verification");
+        vm.prank(alice);
+        IXochiZKPOracle.ComplianceAttestation memory att =
+            oracle.submitCompliance(0, ProofTypes.ATTESTATION, proof, publicInputs, bytes32(0));
+        assertEq(att.subject, alice);
+        assertTrue(att.meetsThreshold);
+    }
+
+    // -------------------------------------------------------------------------
+    // End-to-end: membership proof
+    // -------------------------------------------------------------------------
+
+    function test_realProof_membership_verifies() public {
+        (bytes memory proof, bytes memory publicInputs) = _loadFixture("membership");
+        bool valid = verifier.verifyProof(ProofTypes.MEMBERSHIP, proof, publicInputs);
+        assertTrue(valid);
+    }
+
+    function test_realProof_membership_submitAndCheck() public {
+        (bytes memory proof, bytes memory publicInputs) = _loadFixture("membership");
+        vm.prank(alice);
+        IXochiZKPOracle.ComplianceAttestation memory att =
+            oracle.submitCompliance(0, ProofTypes.MEMBERSHIP, proof, publicInputs, bytes32(0));
+        assertEq(att.subject, alice);
+        assertTrue(att.meetsThreshold);
+    }
+
+    // -------------------------------------------------------------------------
+    // End-to-end: non_membership proof
+    // -------------------------------------------------------------------------
+
+    function test_realProof_nonMembership_verifies() public {
+        (bytes memory proof, bytes memory publicInputs) = _loadFixture("non_membership");
+        bool valid = verifier.verifyProof(ProofTypes.NON_MEMBERSHIP, proof, publicInputs);
+        assertTrue(valid);
+    }
+
+    function test_realProof_nonMembership_submitAndCheck() public {
+        (bytes memory proof, bytes memory publicInputs) = _loadFixture("non_membership");
+        vm.prank(alice);
+        IXochiZKPOracle.ComplianceAttestation memory att =
+            oracle.submitCompliance(0, ProofTypes.NON_MEMBERSHIP, proof, publicInputs, bytes32(0));
+        assertEq(att.subject, alice);
+        assertTrue(att.meetsThreshold);
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
@@ -127,9 +257,10 @@ contract IntegrationTest is Test {
         string memory contractName = _verifierContractName(circuit);
         string memory artifact = string.concat(circuit, "_verifier.sol:", contractName);
         bytes memory bytecode = vm.getCode(artifact);
+        bytes32 salt = keccak256(abi.encodePacked("xochi-test", circuit));
         address deployed;
         assembly {
-            deployed := create(0, add(bytecode, 0x20), mload(bytecode))
+            deployed := create2(0, add(bytecode, 0x20), mload(bytecode), salt)
         }
         require(deployed != address(0), "verifier deployment failed");
         return deployed;

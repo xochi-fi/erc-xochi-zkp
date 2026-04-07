@@ -16,6 +16,9 @@ contract XochiZKPVerifier is IXochiZKPVerifier {
     /// @notice Pending owner for two-step transfer
     address public pendingOwner;
 
+    /// @notice Whether the contract is paused
+    bool public paused;
+
     /// @notice Deadline for pending owner to accept (48 hours from initiation)
     uint256 internal _ownershipTransferDeadline;
 
@@ -32,14 +35,28 @@ contract XochiZKPVerifier is IXochiZKPVerifier {
     error InvalidVersion(uint8 proofType, uint256 version);
     error BatchLengthMismatch();
     error EmptyBatch();
+    error BatchTooLarge();
     error OwnershipTransferExpired();
+    error ContractPaused();
+    error ContractNotPaused();
+
+    /// @notice Maximum number of proofs in a single batch verification
+    uint256 public constant MAX_BATCH_SIZE = 100;
 
     event VerifierUpdated(uint8 indexed proofType, address indexed oldVerifier, address indexed newVerifier);
     event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferCancelled(address indexed cancelledOwner);
+    event Paused(address account);
+    event Unpaused(address account);
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
+        _;
+    }
+
+    modifier whenNotPaused() {
+        if (paused) revert ContractPaused();
         _;
     }
 
@@ -57,6 +74,7 @@ contract XochiZKPVerifier is IXochiZKPVerifier {
     function verifyProof(uint8 proofType, bytes calldata proof, bytes calldata publicInputs)
         external
         view
+        whenNotPaused
         returns (bool valid)
     {
         return _verify(proofType, proof, publicInputs);
@@ -66,10 +84,12 @@ contract XochiZKPVerifier is IXochiZKPVerifier {
     function verifyProofBatch(uint8[] calldata proofTypes, bytes[] calldata proofs, bytes[] calldata publicInputs)
         external
         view
+        whenNotPaused
         returns (bool valid)
     {
         uint256 length = proofTypes.length;
         if (length == 0) revert EmptyBatch();
+        if (length > MAX_BATCH_SIZE) revert BatchTooLarge();
         if (length != proofs.length || length != publicInputs.length) revert BatchLengthMismatch();
 
         for (uint256 i; i < length;) {
@@ -92,6 +112,7 @@ contract XochiZKPVerifier is IXochiZKPVerifier {
     function verifyProofAtVersion(uint8 proofType, uint256 version, bytes calldata proof, bytes calldata publicInputs)
         external
         view
+        whenNotPaused
         returns (bool valid)
     {
         address verifier = _getVerifierAtVersion(proofType, version);
@@ -127,10 +148,27 @@ contract XochiZKPVerifier is IXochiZKPVerifier {
         emit VerifierUpdated(proofType, old, verifier);
     }
 
+    /// @notice Pause the contract, blocking proof verification
+    function pause() external onlyOwner {
+        if (paused) revert ContractPaused();
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    /// @notice Unpause the contract, resuming proof verification
+    function unpause() external onlyOwner {
+        if (!paused) revert ContractNotPaused();
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
+
     /// @notice Begin two-step ownership transfer (48 hour acceptance window)
     /// @param newOwner The address to transfer ownership to
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
+        if (pendingOwner != address(0)) {
+            emit OwnershipTransferCancelled(pendingOwner);
+        }
         pendingOwner = newOwner;
         _ownershipTransferDeadline = block.timestamp + 48 hours;
         emit OwnershipTransferStarted(owner, newOwner);

@@ -18,7 +18,10 @@ library JurisdictionConfig {
     error InvalidJurisdiction(uint8 jurisdictionId);
 
     /// @notice Threshold boundaries for a jurisdiction
-    /// @dev Scores are 0-100. Low: [0, mediumFloor-1], Medium: [mediumFloor, highFloor-1], High: [highFloor, 100]
+    /// @dev Scores are 0-100 (percentage scale). The Noir circuits use basis points (0-10000);
+    ///      a Solidity value of 71 corresponds to 7100 bps in the circuit. Both representations
+    ///      encode the same percentage (71%).
+    ///      Low: [0, mediumFloor-1], Medium: [mediumFloor, highFloor-1], High: [highFloor, 100]
     struct Thresholds {
         uint8 mediumFloor; // score >= this enters medium tier
         uint8 highFloor; // score >= this enters high tier (filing trigger)
@@ -47,7 +50,10 @@ library JurisdictionConfig {
     }
 
     /// @notice Check if a score meets the compliance threshold (below high risk)
-    /// @param score The risk score (0-100)
+    /// @dev Not used by the Oracle (threshold check happens in the ZK circuit).
+    ///      Provided for off-chain consumers and integrators who need to replicate
+    ///      the threshold logic without generating a proof.
+    /// @param score The risk score (0-100, percentage scale)
     /// @param jurisdictionId The jurisdiction to evaluate against
     /// @return compliant Whether the score is below the high-risk filing trigger
     function meetsThreshold(uint8 score, uint8 jurisdictionId) internal pure returns (bool compliant) {

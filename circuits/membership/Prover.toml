@@ -1,0 +1,8 @@
+# Valid membership: element 42 in set 1, index 0, all-zero sibling path
+element = "42"
+merkle_index = "0"
+merkle_path = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
+merkle_root = "0x30211953f68b315a285af9496cdaa51517aba83cb3bb40bdd20b2e42eb189fe6"
+set_id = "1"
+timestamp = "1700000000"
+is_member = true

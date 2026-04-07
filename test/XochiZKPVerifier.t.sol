@@ -159,6 +159,16 @@ contract XochiZKPVerifierTest is Test {
         verifier.verifyProofBatch(new uint8[](0), new bytes[](0), new bytes[](0));
     }
 
+    function test_verifyProofBatch_revert_batchTooLarge() public {
+        uint256 size = verifier.MAX_BATCH_SIZE() + 1;
+        uint8[] memory types = new uint8[](size);
+        bytes[] memory proofs = new bytes[](size);
+        bytes[] memory inputs = new bytes[](size);
+
+        vm.expectRevert(XochiZKPVerifier.BatchTooLarge.selector);
+        verifier.verifyProofBatch(types, proofs, inputs);
+    }
+
     function test_verifyProofBatch_revert_lengthMismatch() public {
         uint8[] memory types = new uint8[](2);
         bytes[] memory proofs = new bytes[](1);
@@ -365,6 +375,109 @@ contract XochiZKPVerifierTest is Test {
         bytes memory unaligned = new bytes(5 * 32 + extra);
         vm.expectRevert(abi.encodeWithSelector(ProofTypes.UnalignedPublicInputs.selector, 5 * 32 + extra));
         verifier.verifyProof(ProofTypes.COMPLIANCE, _dummyProof(), unaligned);
+    }
+
+    // -------------------------------------------------------------------------
+    // Pause mechanism
+    // -------------------------------------------------------------------------
+
+    function test_pause_blocksVerifyProof() public {
+        vm.prank(owner);
+        verifier.pause();
+
+        vm.expectRevert(XochiZKPVerifier.ContractPaused.selector);
+        verifier.verifyProof(ProofTypes.COMPLIANCE, _dummyProof(), _complianceInputs());
+    }
+
+    function test_pause_blocksVerifyProofBatch() public {
+        vm.prank(owner);
+        verifier.pause();
+
+        uint8[] memory types = new uint8[](1);
+        types[0] = ProofTypes.COMPLIANCE;
+        bytes[] memory proofs = new bytes[](1);
+        proofs[0] = _dummyProof();
+        bytes[] memory inputs = new bytes[](1);
+        inputs[0] = _complianceInputs();
+
+        vm.expectRevert(XochiZKPVerifier.ContractPaused.selector);
+        verifier.verifyProofBatch(types, proofs, inputs);
+    }
+
+    function test_pause_blocksVerifyProofAtVersion() public {
+        vm.prank(owner);
+        verifier.pause();
+
+        vm.expectRevert(XochiZKPVerifier.ContractPaused.selector);
+        verifier.verifyProofAtVersion(ProofTypes.COMPLIANCE, 1, _dummyProof(), _complianceInputs());
+    }
+
+    function test_pause_allowsGetVerifier() public {
+        vm.prank(owner);
+        verifier.pause();
+
+        assertEq(verifier.getVerifier(ProofTypes.COMPLIANCE), address(passingVerifier));
+    }
+
+    function test_unpause_resumesVerifyProof() public {
+        vm.startPrank(owner);
+        verifier.pause();
+        verifier.unpause();
+        vm.stopPrank();
+
+        assertTrue(verifier.verifyProof(ProofTypes.COMPLIANCE, _dummyProof(), _complianceInputs()));
+    }
+
+    function test_pause_revert_notOwner() public {
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPVerifier.Unauthorized.selector);
+        verifier.pause();
+    }
+
+    function test_pause_revert_alreadyPaused() public {
+        vm.startPrank(owner);
+        verifier.pause();
+        vm.expectRevert(XochiZKPVerifier.ContractPaused.selector);
+        verifier.pause();
+        vm.stopPrank();
+    }
+
+    function test_unpause_revert_notPaused() public {
+        vm.prank(owner);
+        vm.expectRevert(XochiZKPVerifier.ContractNotPaused.selector);
+        verifier.unpause();
+    }
+
+    function test_pause_emitsEvent() public {
+        vm.prank(owner);
+        vm.expectEmit(false, false, false, true);
+        emit XochiZKPVerifier.Paused(owner);
+        verifier.pause();
+    }
+
+    function test_unpause_emitsEvent() public {
+        vm.prank(owner);
+        verifier.pause();
+
+        vm.prank(owner);
+        vm.expectEmit(false, false, false, true);
+        emit XochiZKPVerifier.Unpaused(owner);
+        verifier.unpause();
+    }
+
+    // -------------------------------------------------------------------------
+    // Ownership transfer cancellation
+    // -------------------------------------------------------------------------
+
+    function test_transferOwnership_emitsCancellation_whenPendingExists() public {
+        address bob = makeAddr("bob");
+        vm.startPrank(owner);
+        verifier.transferOwnership(alice);
+
+        vm.expectEmit(true, false, false, false);
+        emit XochiZKPVerifier.OwnershipTransferCancelled(alice);
+        verifier.transferOwnership(bob);
+        vm.stopPrank();
     }
 
     // -------------------------------------------------------------------------

@@ -19,7 +19,12 @@ interface IXochiZKPOracle {
 
     /// @notice Emitted when a compliance proof is verified and attestation recorded
     event ComplianceVerified(
-        address indexed subject, uint8 indexed jurisdictionId, bool meetsThreshold, bytes32 proofHash, uint256 expiresAt
+        address indexed subject,
+        uint8 indexed jurisdictionId,
+        bool meetsThreshold,
+        bytes32 indexed proofHash,
+        uint256 expiresAt,
+        uint256 previousExpiresAt
     );
 
     /// @notice Emitted when provider weights are updated

@@ -1,0 +1,13 @@
+# Non-membership: element 50 not in set {10, 100}, set_id=1
+# Tree: index 0 = hash2(10,1), index 1 = hash2(100,1)
+element = "50"
+low_leaf = "10"
+high_leaf = "100"
+low_index = "0"
+low_path = ["0x221e24eef47a71db7759851c68c8652da18b4f09c4769f2d5b8c297fbb83f07b", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
+high_index = "1"
+high_path = ["0x05d75a4240c69473571bb84967f03169b71440533e7d372a93dc254f9582fc7f", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
+merkle_root = "0x12d001bc3463cb4d3a745f802dffd80c00a2927f77110d1b0a59b9a3bd787b86"
+set_id = "1"
+timestamp = "1700000000"
+is_non_member = true

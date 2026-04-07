@@ -15,12 +15,13 @@ import {ProofTypes} from "../src/libraries/ProofTypes.sol";
 ///
 /// Environment variables:
 ///   PRIVATE_KEY          -- deployer private key
-///   INITIAL_CONFIG_HASH  -- initial provider weight config hash (optional, defaults to zero)
+///   INITIAL_CONFIG_HASH  -- initial provider weight config hash (required, must be non-zero)
 contract Deploy is Script {
     function run() public {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
         address deployer = vm.addr(deployerKey);
-        bytes32 configHash = vm.envOr("INITIAL_CONFIG_HASH", bytes32(0));
+        bytes32 configHash = vm.envBytes32("INITIAL_CONFIG_HASH");
+        bytes32 baseSalt = vm.envOr("DEPLOY_SALT", bytes32("xochi-v1"));
 
         console.log("Deployer:", deployer);
         console.log("Initial config hash:");
@@ -28,12 +29,14 @@ contract Deploy is Script {
 
         vm.startBroadcast(deployerKey);
 
-        // 1. Deploy the verifier router
-        XochiZKPVerifier verifier = new XochiZKPVerifier(deployer);
+        // 1. Deploy the verifier router (deterministic via CREATE2)
+        XochiZKPVerifier verifier = new XochiZKPVerifier{salt: baseSalt}(deployer);
         console.log("XochiZKPVerifier:", address(verifier));
 
-        // 2. Deploy the oracle
-        XochiZKPOracle oracle = new XochiZKPOracle(address(verifier), deployer, configHash);
+        // 2. Deploy the oracle (deterministic via CREATE2)
+        XochiZKPOracle oracle = new XochiZKPOracle{salt: keccak256(abi.encodePacked(baseSalt, "oracle"))}(
+            address(verifier), deployer, configHash
+        );
         console.log("XochiZKPOracle:", address(oracle));
 
         // 3. Deploy generated UltraHonk verifiers and register them
@@ -50,10 +53,11 @@ contract Deploy is Script {
     function _deployAndRegister(XochiZKPVerifier verifier, uint8 proofType, string memory contractName) internal {
         string memory artifact = string.concat(_artifactFileName(contractName), ":", contractName);
         bytes memory bytecode = vm.getCode(artifact);
+        bytes32 salt = keccak256(abi.encodePacked("xochi-v1", contractName));
 
         address deployed;
         assembly {
-            deployed := create(0, add(bytecode, 0x20), mload(bytecode))
+            deployed := create2(0, add(bytecode, 0x20), mload(bytecode), salt)
         }
         require(deployed != address(0), string.concat(contractName, " deployment failed"));
 

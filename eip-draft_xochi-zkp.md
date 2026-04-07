@@ -67,7 +67,7 @@ interface IXochiZKPVerifier {
         bytes calldata publicInputs
     ) external view returns (bool valid);
 
-    /// @notice Verify a batch of proofs atomically
+    /// @notice Verify a batch of proofs atomically (max 100 proofs per batch)
     /// @param proofTypes Array of proof types
     /// @param proofs Array of encoded proofs
     /// @param publicInputs Array of public input sets
@@ -105,8 +105,9 @@ interface IXochiZKPOracle {
         address indexed subject,
         uint8 indexed jurisdictionId,
         bool meetsThreshold,
-        bytes32 proofHash,
-        uint256 expiresAt
+        bytes32 indexed proofHash,
+        uint256 expiresAt,
+        uint256 previousExpiresAt
     );
 
     event ProviderWeightsUpdated(
@@ -220,14 +221,20 @@ Public inputs MUST be 32-byte aligned. Implementations MUST reject `publicInputs
 
 The following validation MUST be performed per proof type:
 
-| Proof Type     | Validated Fields                                | Registry                     |
-| -------------- | ----------------------------------------------- | ---------------------------- |
-| COMPLIANCE     | jurisdiction_id, provider_set_hash, config_hash | Config hash registry         |
-| RISK_SCORE     | config_hash                                     | Config hash registry         |
-| PATTERN        | reporting_threshold, tx_set_hash != 0           | Reporting threshold registry |
-| ATTESTATION    | merkle_root                                     | Merkle root registry         |
-| MEMBERSHIP     | merkle_root                                     | Merkle root registry         |
-| NON_MEMBERSHIP | merkle_root                                     | Merkle root registry         |
+| Proof Type     | Validated Fields                                                 | Registry                     |
+| -------------- | ---------------------------------------------------------------- | ---------------------------- |
+| COMPLIANCE     | jurisdiction_id, provider_set_hash, config_hash, meets_threshold | Config hash registry         |
+| RISK_SCORE     | result, config_hash                                              | Config hash registry         |
+| PATTERN        | result, reporting_threshold, tx_set_hash != 0                    | Reporting threshold registry |
+| ATTESTATION    | is_valid, merkle_root                                            | Merkle root registry         |
+| MEMBERSHIP     | merkle_root, is_member                                           | Merkle root registry         |
+| NON_MEMBERSHIP | merkle_root, is_non_member                                       | Merkle root registry         |
+
+### Proof Result Validation
+
+Each proof type includes a boolean result field (`meets_threshold`, `result`, `is_valid`, `is_member`, `is_non_member`) in its public inputs. A valid ZK proof with a false result means the prover proved they do NOT satisfy the condition (e.g., non-compliant, not a member). Implementations MUST reject proofs where the result field is not `true` (encoded as `bytes32(uint256(1))`). Without this check, a user could submit a cryptographically valid proof of non-compliance and receive a compliant attestation.
+
+The `providerSetHash` parameter in `submitCompliance()` is only semantically meaningful for COMPLIANCE proofs, which include it as a public input. For all other proof types, implementations MUST ignore the caller-supplied `providerSetHash` and store `bytes32(0)` in the attestation to prevent injection of arbitrary values.
 
 ### Validation Registries
 
@@ -303,13 +310,33 @@ This enables proof-of-innocence: counterparties to retroactively flagged address
 
 This ERC introduces new interfaces and does not modify existing standards. It is designed to complement ERC-5564 (stealth addresses) and ERC-6538 (stealth meta-address registry) for privacy-preserving settlement, but does not depend on them.
 
+## Related Work
+
+Several existing and emerging standards address compliance, privacy, or on-chain ZK verification. This ERC differs from each in scope, architecture, or trust model.
+
+**ERC-3643 (T-REX).** The ratified compliance token standard for regulated securities, with $32B+ in tokenized assets. ERC-3643 requires identity revelation via ONCHAINID claims verified by trusted issuers. This ERC proves compliance without revealing identity data, provider signals, or transaction amounts. The two standards are complementary: this ERC could serve as a ZK-enhanced identity provider within an ERC-3643 deployment.
+
+**Privacy Pools (0xbow).** Live on Ethereum mainnet since March 2025. Users prove their withdrawal originates from a "clean" deposit set using ZK proofs, with Association Set Providers (ASPs) maintaining approved deposit lists. Privacy Pools validates the "prove compliance without revealing data" model. However, set membership is a subset of what regulatory compliance requires. This ERC extends the approach to multi-dimensional compliance: risk scoring, anti-structuring detection, credential verification, and membership/non-membership proofs.
+
+**EIP-7963.** An oracle-permissioned ERC-20 that validates token transfers via ZK proofs against off-chain payment instructions (ISO 20022 format), using RISC Zero as the proof system. EIP-7963 gates a single token's transfers through a single oracle with a single proof type. This ERC provides standalone compliance attestations with six proof types, usable by any contract, and is not gated to token operations.
+
+**VOSA-RWA.** A compliance-gated privacy token for real-world assets (Draft, 2026). Every token operation requires dual ZK proofs: a compliance attestation (Groth16/BN254, Poseidon hashing) and a transaction conservation proof. VOSA-RWA and this ERC share the "ZK proof for compliance, no PII on-chain" design, but VOSA-RWA embeds compliance into a specific token standard. This ERC is a standalone oracle whose attestations are reusable across protocols.
+
+**ERC-7812.** A ZK identity registry using a singleton Sparse Merkle Tree (80-level, Poseidon on BN128) with custom registrars for business logic. Deployed on Ethereum mainnet. ERC-7812 provides a general-purpose private statement registry. This ERC could operate as a compliance-specific registrar within ERC-7812, storing compliance commitments in its Merkle tree.
+
+**ERC-8039.** A proof-system-agnostic ZK verification interface for smart accounts (`verifyProof(bytes,bytes) returns (bytes4)`). ERC-8039 standardizes per-relation verifier contracts with a non-reverting return pattern (following ERC-1271). This ERC's per-proof-type verifier routing serves a similar verification role but with domain-specific semantics (proof type routing, batch verification, version history). Each generated UltraHonk verifier in this ERC could be wrapped behind an ERC-8039 adapter for smart account integration.
+
+**ERC-8035/8036 (MultiTrust Credential).** Non-transferable credential anchors with ZK presentation via fixed Groth16 ABI, supporting predicate proofs ("score >= threshold") without revealing raw data. The predicate-proving pattern parallels this ERC's RISK_SCORE proof type. MultiTrust focuses on credential issuance and presentation; this ERC focuses on compliance attestation and retroactive verification.
+
+**ERC-1922.** The original zk-SNARK verifier standard (2019, stagnant). Defines a generic interface for on-chain ZK verification with dynamic arrays for cross-scheme compatibility. This ERC supersedes ERC-1922's approach with per-proof-type routing, UltraHonk support, and domain-specific input validation.
+
 ## Security Considerations
 
 **Proof soundness.** The security of the system depends on the ZK proof system used. Implementations MUST use a proof system with at least 128-bit security. Groth16, PLONK, and UltraHonk (Noir/Aztec) are acceptable.
 
 **Provider collusion.** If all screening providers collude, they could issue false clean signals. Implementations SHOULD require attestations from multiple independent providers and weight them based on enforcement track record.
 
-**Timestamp manipulation.** Proofs commit to block timestamps. Validators could manipulate timestamps by ~15 seconds on Ethereum. This is acceptable for compliance windows measured in days.
+**Timestamp manipulation.** Proofs commit to block timestamps. Validators could manipulate timestamps by ~15 seconds on Ethereum. This is acceptable for compliance windows measured in days. Circuits SHOULD enforce realistic timestamp bounds (e.g., after 2021-01-01 and before year ~36000) to reject obviously invalid values.
 
 **Regulatory acceptance.** This standard provides a technical mechanism for ZK compliance. Whether specific jurisdictions accept ZK proofs as sufficient compliance evidence is a legal question, not a technical one. The VARA (Dubai) definition of "anonymity-enhanced crypto" excludes assets with "mitigating technologies" for traceability. This standard provides exactly that technology.
 
@@ -319,16 +346,24 @@ This ERC introduces new interfaces and does not modify existing standards. It is
 
 **Public input validation.** Implementations MUST validate public inputs for every proof type, not just the primary compliance proof. Without validation, a prover can generate a proof for one context (e.g., a lenient jurisdiction's reporting threshold) and submit it for a different context. Specifically:
 
+- ALL proof types MUST validate their boolean result field (`meets_threshold`, `result`, `is_valid`, `is_member`, `is_non_member`) equals `bytes32(uint256(1))`. A valid proof with a false result proves non-compliance; accepting it would record a compliant attestation for a non-compliant subject.
 - COMPLIANCE and RISK_SCORE proofs MUST validate `config_hash` against a registry of known configurations.
 - COMPLIANCE proofs MUST validate `jurisdiction_id` and `provider_set_hash` against caller-supplied parameters.
 - PATTERN (anti-structuring) proofs MUST validate `reporting_threshold` against a per-jurisdiction registry.
 - MEMBERSHIP, NON_MEMBERSHIP, and ATTESTATION proofs MUST validate `merkle_root` against a registry of known roots.
+- Unknown proof types (outside 0x01-0x06) MUST be rejected.
 
 **Proof replay prevention.** Proof hashes MUST be keyed on both the proof bytes and the proof type: `keccak256(abi.encodePacked(proof, proofType))`. Keying on proof bytes alone would prevent the same bytes from being submitted for a different proof type, which is an unnecessary restriction.
 
-**Config and root revocation.** Provider configuration hashes and merkle roots SHOULD be revocable. Without revocation, a discovered-to-be-flawed configuration or a compromised merkle tree remains accepted forever. Implementations MUST NOT allow revoking the currently active provider configuration.
+**Config and root revocation.** Provider configuration hashes and merkle roots SHOULD be revocable. Without revocation, a discovered-to-be-flawed configuration or a compromised merkle tree remains accepted forever. Implementations MUST NOT allow revoking the currently active provider configuration. Provider configuration history SHOULD be bounded to prevent unbounded storage growth (e.g., 256 entries).
 
 **Verifier TOCTOU.** Implementations MUST resolve the verifier address once per submission and use it for both proof verification and attestation recording. A time-of-check/time-of-use gap between address resolution and proof verification could allow the recorded `verifierUsed` to diverge from the actual verifier if a verifier upgrade occurs mid-transaction.
+
+**Batch verification limits.** Implementations MUST enforce a maximum batch size for `verifyProofBatch()` to prevent unbounded gas consumption. The reference implementation uses a limit of 100 proofs per batch.
+
+**Registry idempotency.** Registry operations (registering merkle roots, reporting thresholds) SHOULD be idempotent-safe: re-registering an already-registered value SHOULD revert to prevent accidental double-registration. Similarly, revoking a value that is not registered SHOULD revert.
+
+**Emergency circuit break.** Implementations SHOULD include a pause mechanism that can halt proof submissions (and optionally, verifications) in case of a discovered vulnerability in a ZK circuit or verifier contract. Pausing MUST NOT prevent read access to existing attestations, as these are needed for retroactive verification (proof-of-innocence).
 
 ## Reference Implementation
 
@@ -337,23 +372,25 @@ A reference implementation is provided at [erc-xochi-zkp](https://github.com/xoc
 - **Solidity contracts**: `src/XochiZKPVerifier.sol`, `src/XochiZKPOracle.sol` (Foundry, Solidity 0.8.28)
 - **Noir circuits**: `circuits/` (one per proof type, compiled with nargo 1.0)
 - **Generated verifiers**: `src/generated/` (UltraHonk verifiers generated by Barretenberg)
-- **Test suite**: 109 Solidity tests (unit, fuzz, invariant, integration with real proofs), 36 circuit tests
+- **Test suite**: 160 Solidity tests (unit, fuzz, invariant, integration with real proofs for all 6 proof types), 47 circuit tests
 
 ## Test Vectors
 
-The reference implementation includes binary proof fixtures in `test/fixtures/` for end-to-end verification. Each fixture contains:
+The reference implementation includes binary proof fixtures in `test/fixtures/` for all six proof types. Each fixture contains:
 
-- `proof`: the raw UltraHonk proof bytes
+- `proof`: the raw UltraHonk proof bytes (8640 bytes each)
 - `public_inputs`: the packed bytes32 public inputs
 
-The compliance fixture uses the following witness:
+| Proof Type     | Public Inputs Size   | Witness Summary                                                                                      |
+| -------------- | -------------------- | ---------------------------------------------------------------------------------------------------- |
+| COMPLIANCE     | 160 bytes (5 inputs) | Single provider (id=1, weight=100), signal=20, EU jurisdiction, score=2000 bps, meets_threshold=true |
+| RISK_SCORE     | 192 bytes (6 inputs) | Single provider, signal=60, threshold proof, bound=5000, result=true                                 |
+| PATTERN        | 160 bytes (5 inputs) | 4 transactions (500/1200/3000/7500), structuring analysis, threshold=10000, clean=true               |
+| ATTESTATION    | 160 bytes (5 inputs) | Provider 42, KYC basic credential, expiry=2000000000, current=1700000000, valid=true                 |
+| MEMBERSHIP     | 128 bytes (4 inputs) | Element=42, set_id=1, index 0 in 20-level Merkle tree, is_member=true                                |
+| NON_MEMBERSHIP | 128 bytes (4 inputs) | Element=50 not in set {10, 100}, set_id=1, sorted Merkle adjacency, is_non_member=true               |
 
-- Single provider (id=1, weight=100), signal=20 (low risk)
-- Jurisdiction: EU (id=0), threshold: 7100 bps
-- Computed score: 2000 bps (below threshold, meets_threshold=true)
-- config_hash: `0x18574f427f33c6c77af53be06544bd749c9a1db855599d950af61ea613df8405` (pedersen_hash of weight config)
-
-Fixtures can be regenerated via `scripts/generate-fixtures.sh`.
+All fixtures use Pedersen hash (Noir stdlib) for in-circuit commitments and Merkle tree construction. Fixtures can be regenerated via `scripts/generate-fixtures.sh`.
 
 ## Copyright
 

@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: CC0-1.0
 pragma solidity ^0.8.28;
 
-import {Test} from "forge-std/Test.sol";
+import {Test, Vm} from "forge-std/Test.sol";
 import {XochiZKPOracle} from "../src/XochiZKPOracle.sol";
 import {XochiZKPVerifier} from "../src/XochiZKPVerifier.sol";
 import {IXochiZKPOracle} from "../src/interfaces/IXochiZKPOracle.sol";
@@ -86,11 +86,31 @@ contract XochiZKPOracleTest is Test {
         bytes memory publicInputs = _complianceInputs();
 
         vm.prank(alice);
-        vm.expectEmit(true, true, false, true);
+        vm.expectEmit(true, true, true, true);
         emit IXochiZKPOracle.ComplianceVerified(
-            alice, 0, true, keccak256(abi.encodePacked(proof, ProofTypes.COMPLIANCE)), block.timestamp + 24 hours
+            alice, 0, true, keccak256(abi.encodePacked(proof, ProofTypes.COMPLIANCE)), block.timestamp + 24 hours, 0
         );
         oracle.submitCompliance(0, ProofTypes.COMPLIANCE, proof, publicInputs, DEFAULT_PROVIDER_SET_HASH);
+    }
+
+    function test_submitCompliance_emitsEvent_withPreviousExpiry() public {
+        // First submission
+        _submitForAlice(0);
+        uint256 firstExpiresAt = block.timestamp + 24 hours;
+
+        // Second submission should emit the first expiry
+        bytes memory proof2 = _uniqueProof();
+        vm.prank(alice);
+        vm.expectEmit(true, true, true, true);
+        emit IXochiZKPOracle.ComplianceVerified(
+            alice,
+            0,
+            true,
+            keccak256(abi.encodePacked(proof2, ProofTypes.COMPLIANCE)),
+            block.timestamp + 24 hours,
+            firstExpiresAt
+        );
+        oracle.submitCompliance(0, ProofTypes.COMPLIANCE, proof2, _complianceInputs(), DEFAULT_PROVIDER_SET_HASH);
     }
 
     function test_submitCompliance_revert_invalidJurisdiction() public {
@@ -401,6 +421,19 @@ contract XochiZKPOracleTest is Test {
     }
 
     // -------------------------------------------------------------------------
+    // F2: providerSetHash zeroed for non-COMPLIANCE proofs
+    // -------------------------------------------------------------------------
+
+    function test_submitCompliance_nonComplianceProof_zerosProviderSetHash() public {
+        bytes memory publicInputs = _riskScoreInputs(INITIAL_CONFIG);
+        bytes32 arbitraryHash = keccak256("arbitrary");
+        vm.prank(alice);
+        IXochiZKPOracle.ComplianceAttestation memory att =
+            oracle.submitCompliance(0, ProofTypes.RISK_SCORE, _uniqueProof(), publicInputs, arbitraryHash);
+        assertEq(att.providerSetHash, bytes32(0));
+    }
+
+    // -------------------------------------------------------------------------
     // Verifier used tracking
     // -------------------------------------------------------------------------
 
@@ -619,6 +652,105 @@ contract XochiZKPOracleTest is Test {
         vm.prank(alice);
         vm.expectRevert(XochiZKPOracle.PublicInputMismatch.selector);
         oracle.submitCompliance(0, ProofTypes.PATTERN, _uniqueProof(), publicInputs, bytes32(0));
+    }
+
+    // -------------------------------------------------------------------------
+    // F1: Reject proofs with negative result fields
+    // -------------------------------------------------------------------------
+
+    function test_submitCompliance_revert_complianceNonCompliant() public {
+        // meets_threshold = 0 (non-compliant)
+        bytes memory publicInputs = abi.encodePacked(
+            bytes32(uint256(0)), // jurisdiction_id
+            DEFAULT_PROVIDER_SET_HASH, // provider_set_hash
+            INITIAL_CONFIG, // config_hash
+            bytes32(uint256(1700000)), // timestamp
+            bytes32(uint256(0)) // meets_threshold = false
+        );
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.ProofResultNegative.selector);
+        oracle.submitCompliance(0, ProofTypes.COMPLIANCE, _uniqueProof(), publicInputs, DEFAULT_PROVIDER_SET_HASH);
+    }
+
+    function test_submitCompliance_revert_riskScoreNegativeResult() public {
+        // result = 0 (score doesn't satisfy condition)
+        bytes memory publicInputs = abi.encodePacked(
+            bytes32(uint256(1)), // proof_type
+            bytes32(uint256(1)), // direction
+            bytes32(uint256(5000)), // bound_lower
+            bytes32(uint256(0)), // bound_upper
+            bytes32(uint256(0)), // result = false
+            INITIAL_CONFIG // config_hash
+        );
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.ProofResultNegative.selector);
+        oracle.submitCompliance(0, ProofTypes.RISK_SCORE, _uniqueProof(), publicInputs, bytes32(0));
+    }
+
+    function test_submitCompliance_revert_patternStructuringDetected() public {
+        // result = 0 (structuring detected)
+        bytes memory publicInputs = abi.encodePacked(
+            bytes32(uint256(1)), // analysis_type
+            bytes32(uint256(0)), // result = false (structuring detected)
+            bytes32(uint256(10000)), // reporting_threshold
+            bytes32(uint256(86400)), // time_window
+            bytes32(uint256(0xabcd)) // tx_set_hash
+        );
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.ProofResultNegative.selector);
+        oracle.submitCompliance(0, ProofTypes.PATTERN, _uniqueProof(), publicInputs, bytes32(0));
+    }
+
+    function test_submitCompliance_revert_attestationInvalid() public {
+        bytes32 root = bytes32(uint256(0xbeef));
+        vm.prank(owner);
+        oracle.registerMerkleRoot(root);
+
+        // is_valid = 0 (credential invalid/expired)
+        bytes memory publicInputs = abi.encodePacked(
+            bytes32(uint256(42)), // provider_id
+            bytes32(uint256(1)), // credential_type
+            bytes32(uint256(0)), // is_valid = false
+            root, // merkle_root
+            bytes32(uint256(1700000)) // current_timestamp
+        );
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.ProofResultNegative.selector);
+        oracle.submitCompliance(0, ProofTypes.ATTESTATION, _uniqueProof(), publicInputs, bytes32(0));
+    }
+
+    function test_submitCompliance_revert_membershipNotMember() public {
+        bytes32 root = bytes32(uint256(0xbeef));
+        vm.prank(owner);
+        oracle.registerMerkleRoot(root);
+
+        // is_member = 0 (not a member)
+        bytes memory publicInputs = abi.encodePacked(
+            root, // merkle_root
+            bytes32(uint256(1)), // set_id
+            bytes32(uint256(1700000)), // timestamp
+            bytes32(uint256(0)) // is_member = false
+        );
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.ProofResultNegative.selector);
+        oracle.submitCompliance(0, ProofTypes.MEMBERSHIP, _uniqueProof(), publicInputs, bytes32(0));
+    }
+
+    function test_submitCompliance_revert_nonMembershipFailed() public {
+        bytes32 root = bytes32(uint256(0xbeef));
+        vm.prank(owner);
+        oracle.registerMerkleRoot(root);
+
+        // is_non_member = 0 (element IS in set)
+        bytes memory publicInputs = abi.encodePacked(
+            root, // merkle_root
+            bytes32(uint256(1)), // set_id
+            bytes32(uint256(1700000)), // timestamp
+            bytes32(uint256(0)) // is_non_member = false
+        );
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.ProofResultNegative.selector);
+        oracle.submitCompliance(0, ProofTypes.NON_MEMBERSHIP, _uniqueProof(), publicInputs, bytes32(0));
     }
 
     // -------------------------------------------------------------------------
@@ -943,6 +1075,212 @@ contract XochiZKPOracleTest is Test {
         oracle.submitCompliance(
             0, ProofTypes.COMPLIANCE, _uniqueProof(), _complianceInputs(), DEFAULT_PROVIDER_SET_HASH
         );
+    }
+
+    // -------------------------------------------------------------------------
+    // Pause mechanism
+    // -------------------------------------------------------------------------
+
+    function test_pause_blocksSubmitCompliance() public {
+        vm.prank(owner);
+        oracle.pause();
+
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.ContractPaused.selector);
+        oracle.submitCompliance(
+            0, ProofTypes.COMPLIANCE, _uniqueProof(), _complianceInputs(), DEFAULT_PROVIDER_SET_HASH
+        );
+    }
+
+    function test_pause_allowsCheckCompliance() public {
+        _submitForAlice(0);
+        vm.prank(owner);
+        oracle.pause();
+
+        (bool valid,) = oracle.checkCompliance(alice, 0);
+        assertTrue(valid);
+    }
+
+    function test_pause_allowsGetHistoricalProof() public {
+        bytes memory proof = _uniqueProof();
+        vm.prank(alice);
+        oracle.submitCompliance(0, ProofTypes.COMPLIANCE, proof, _complianceInputs(), DEFAULT_PROVIDER_SET_HASH);
+
+        vm.prank(owner);
+        oracle.pause();
+
+        bytes32 proofHash = keccak256(abi.encodePacked(proof, ProofTypes.COMPLIANCE));
+        IXochiZKPOracle.ComplianceAttestation memory att = oracle.getHistoricalProof(proofHash);
+        assertEq(att.subject, alice);
+    }
+
+    function test_unpause_resumesSubmitCompliance() public {
+        vm.startPrank(owner);
+        oracle.pause();
+        oracle.unpause();
+        vm.stopPrank();
+
+        vm.prank(alice);
+        IXochiZKPOracle.ComplianceAttestation memory att = oracle.submitCompliance(
+            0, ProofTypes.COMPLIANCE, _uniqueProof(), _complianceInputs(), DEFAULT_PROVIDER_SET_HASH
+        );
+        assertEq(att.subject, alice);
+    }
+
+    function test_pause_revert_notOwner() public {
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.Unauthorized.selector);
+        oracle.pause();
+    }
+
+    function test_unpause_revert_notOwner() public {
+        vm.prank(owner);
+        oracle.pause();
+
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.Unauthorized.selector);
+        oracle.unpause();
+    }
+
+    function test_pause_revert_alreadyPaused() public {
+        vm.startPrank(owner);
+        oracle.pause();
+        vm.expectRevert(XochiZKPOracle.ContractPaused.selector);
+        oracle.pause();
+        vm.stopPrank();
+    }
+
+    function test_unpause_revert_notPaused() public {
+        vm.prank(owner);
+        vm.expectRevert(XochiZKPOracle.ContractNotPaused.selector);
+        oracle.unpause();
+    }
+
+    function test_pause_emitsEvent() public {
+        vm.prank(owner);
+        vm.expectEmit(false, false, false, true);
+        emit XochiZKPOracle.Paused(owner);
+        oracle.pause();
+    }
+
+    function test_unpause_emitsEvent() public {
+        vm.prank(owner);
+        oracle.pause();
+
+        vm.prank(owner);
+        vm.expectEmit(false, false, false, true);
+        emit XochiZKPOracle.Unpaused(owner);
+        oracle.unpause();
+    }
+
+    // -------------------------------------------------------------------------
+    // Config history bounds
+    // -------------------------------------------------------------------------
+
+    function test_updateProviderConfig_revert_historyFull() public {
+        vm.startPrank(owner);
+        // setUp already pushed 1 (initial config). Push 255 more to reach 256.
+        for (uint256 i; i < 255; i++) {
+            oracle.updateProviderConfig(keccak256(abi.encodePacked("fill-", i)), "");
+        }
+        assertEq(oracle.configHistoryLength(), 256);
+
+        // 257th should revert
+        vm.expectRevert(XochiZKPOracle.ConfigHistoryFull.selector);
+        oracle.updateProviderConfig(keccak256("overflow"), "");
+        vm.stopPrank();
+    }
+
+    function test_updateProviderConfig_revert_duplicateConfig() public {
+        vm.prank(owner);
+        vm.expectRevert(XochiZKPOracle.ConfigAlreadyCurrent.selector);
+        oracle.updateProviderConfig(INITIAL_CONFIG, "");
+    }
+
+    // -------------------------------------------------------------------------
+    // Constructor: zero config hash
+    // -------------------------------------------------------------------------
+
+    function test_constructor_revert_zeroConfigHash() public {
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPOracle.InvalidConfigHash.selector, bytes32(0)));
+        new XochiZKPOracle(address(verifier), owner, bytes32(0));
+    }
+
+    // -------------------------------------------------------------------------
+    // Idempotency guards
+    // -------------------------------------------------------------------------
+
+    function test_registerMerkleRoot_revert_alreadyRegistered() public {
+        bytes32 root = bytes32(uint256(0xbeef));
+        vm.startPrank(owner);
+        oracle.registerMerkleRoot(root);
+        vm.expectRevert(XochiZKPOracle.AlreadyRegistered.selector);
+        oracle.registerMerkleRoot(root);
+        vm.stopPrank();
+    }
+
+    function test_revokeMerkleRoot_revert_notRegistered() public {
+        vm.prank(owner);
+        vm.expectRevert(XochiZKPOracle.NotRegistered.selector);
+        oracle.revokeMerkleRoot(bytes32(uint256(0xdead)));
+    }
+
+    function test_registerReportingThreshold_revert_alreadyRegistered() public {
+        // 10000 already registered in setUp
+        vm.prank(owner);
+        vm.expectRevert(XochiZKPOracle.AlreadyRegistered.selector);
+        oracle.registerReportingThreshold(bytes32(uint256(10000)));
+    }
+
+    function test_revokeReportingThreshold_revert_notRegistered() public {
+        vm.prank(owner);
+        vm.expectRevert(XochiZKPOracle.NotRegistered.selector);
+        oracle.revokeReportingThreshold(bytes32(uint256(99999)));
+    }
+
+    // -------------------------------------------------------------------------
+    // Unknown proof type guard
+    // -------------------------------------------------------------------------
+
+    function test_submitCompliance_revert_unknownProofType_zero() public {
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ProofTypes.InvalidProofType.selector, 0x00));
+        oracle.submitCompliance(0, 0x00, _uniqueProof(), _complianceInputs(), DEFAULT_PROVIDER_SET_HASH);
+    }
+
+    function test_submitCompliance_revert_unknownProofType_seven() public {
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ProofTypes.InvalidProofType.selector, 0x07));
+        oracle.submitCompliance(0, 0x07, _uniqueProof(), _complianceInputs(), DEFAULT_PROVIDER_SET_HASH);
+    }
+
+    // -------------------------------------------------------------------------
+    // Ownership transfer cancellation
+    // -------------------------------------------------------------------------
+
+    function test_transferOwnership_emitsCancellation_whenPendingExists() public {
+        address bob = makeAddr("bob");
+        vm.startPrank(owner);
+        oracle.transferOwnership(alice);
+
+        vm.expectEmit(true, false, false, false);
+        emit XochiZKPOracle.OwnershipTransferCancelled(alice);
+        oracle.transferOwnership(bob);
+        vm.stopPrank();
+    }
+
+    function test_transferOwnership_noCancellation_whenNoPending() public {
+        // First transfer should not emit cancellation
+        vm.prank(owner);
+        vm.recordLogs();
+        oracle.transferOwnership(alice);
+
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        for (uint256 i; i < entries.length; i++) {
+            assertTrue(
+                entries[i].topics[0] != keccak256("OwnershipTransferCancelled(address)"), "should not emit cancellation"
+            );
+        }
     }
 
     // -------------------------------------------------------------------------

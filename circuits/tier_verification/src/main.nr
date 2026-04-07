@@ -25,7 +25,7 @@
 
 use xochi_shared::{compute_merkle_root, hash2, hash3};
 
-/// Credential types
+/// Credential types (2 and 3 are reserved for future use, e.g. KYC Enhanced, Accredited Investor)
 global CREDENTIAL_KYC_BASIC: u8 = 1;
 global CREDENTIAL_INSTITUTIONAL: u8 = 4;
 

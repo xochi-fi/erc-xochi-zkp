@@ -10,14 +10,14 @@ This is distinct from view keys (Railgun, Panther) where you trade privately and
 
 ## Proof types
 
-| Type           | ID   | Assertion                         | What stays hidden   | Circuit            |
-| -------------- | ---- | --------------------------------- | ------------------- | ------------------ |
-| Compliance     | 0x01 | "Risk score below threshold"      | Signals, score      | compliance         |
-| Risk Score     | 0x02 | "Score > X" or "Score in [X,Y]"   | Exact score         | risk_score         |
-| Pattern        | 0x03 | "No structuring detected"         | Transaction history | anti_structuring   |
-| Attestation    | 0x04 | "Valid credential exists"         | Credential details  | tier_verification  |
-| Membership     | 0x05 | "Address in authorized set S"     | Which element       | membership         |
-| Non-membership | 0x06 | "Address NOT in sanctions list S" | List contents       | non_membership     |
+| Type           | ID   | Assertion                         | What stays hidden   | Circuit           |
+| -------------- | ---- | --------------------------------- | ------------------- | ----------------- |
+| Compliance     | 0x01 | "Risk score below threshold"      | Signals, score      | compliance        |
+| Risk Score     | 0x02 | "Score > X" or "Score in [X,Y]"   | Exact score         | risk_score        |
+| Pattern        | 0x03 | "No structuring detected"         | Transaction history | anti_structuring  |
+| Attestation    | 0x04 | "Valid credential exists"         | Credential details  | tier_verification |
+| Membership     | 0x05 | "Address in authorized set S"     | Which element       | membership        |
+| Non-membership | 0x06 | "Address NOT in sanctions list S" | List contents       | non_membership    |
 
 ## How it works
 
@@ -37,32 +37,32 @@ The proof also commits to a timestamp and the screening providers used, enabling
 
 ## Architecture
 
-```
-                    +------------------+
-                    | XochiZKPOracle   |  <-- submitCompliance(), checkCompliance()
-                    | (attestation     |      getHistoricalProof()
-                    |  storage +       |
-                    |  input validation|  validates config hashes, merkle roots,
-                    |  + registries)   |  reporting thresholds per proof type
-                    +--------+---------+
-                             |
-                             | IUltraVerifier.verify() (view, direct call)
-                             v
-     +----------+----------+----------+----------+----------+----------+
-     |          |          |          |          |          |          |
-     v          v          v          v          v          v          v
- +-------+ +-------+ +-------+ +-------+ +-------+ +-------+ +--------+
- |Compli-| |Risk   | |Pattern| |Attest.| |Member | |Non-   | |Verifier|
- |ance   | |Score  | |       | |       | |ship   | |member | |Router  |
- +-------+ +-------+ +-------+ +-------+ +-------+ +-------+ +--------+
- Generated UltraHonk verifiers (bb write_solidity_verifier)
+```solidity
+                  +------------------+
+                  | XochiZKPOracle   |  <-
+                  | (attestation     |  // submitCompliance(), checkCompliance(),
+                  |  storage +       |  // getHistoricalProof()
+                  |  input validation|  // validates config hashes, merkle roots,
+                  |  + registries)   |  // reporting thresholds per proof type
+                  +--------+---------+
+                           |
+                           | IUltraVerifier.verify() (view, direct call)
+                           v
+     +---------+---------+---------+---------+---------+---------+
+     |         |         |         |         |         |         |
+     v         v         v         v         v         v         v
+     +-------+ +-------+ +-------+ +-------+ +-------+ +-------+ +--------+
+     |Compli-| |Risk   | |Pattern| |Attest.| |Member | |Non-   | |Verifier|
+     |ance   | |Score  | |       | |       | |ship   | |member | |Router  |
+     +-------+ +-------+ +-------+ +-------+ +-------+ +-------+ +--------+
+     Generated UltraHonk verifiers (bb write_solidity_verifier)
 ```
 
 Each of the 6 proof types has its own Noir circuit and generates a separate UltraHonk verifier contract via Barretenberg (`bb write_solidity_verifier`).
 
 ## Repository structure
 
-```
+```bash
 /
   eip-draft_xochi-zkp.md          # The EIP document itself
   foundry.toml                    # Foundry project config
@@ -105,12 +105,12 @@ Each of the 6 proof types has its own Noir circuit and generates a separate Ultr
 
 Risk scores are in basis points (0-10000 = 0.00%-100.00%). Thresholds are published on-chain.
 
-| Jurisdiction | Low         | Medium       | High (filing trigger) |
-| ------------ | ----------- | ------------ | --------------------- |
-| EU (AMLD6)   | 0-3099 bps  | 3100-7099    | >=7100                |
-| US (BSA)     | 0-2599 bps  | 2600-6599    | >=6600                |
-| UK (MLR)     | 0-3099 bps  | 3100-7099    | >=7100                |
-| Singapore    | 0-3599 bps  | 3600-7599    | >=7600                |
+| Jurisdiction | Low        | Medium    | High (filing trigger) |
+| ------------ | ---------- | --------- | --------------------- |
+| EU (AMLD6)   | 0-3099 bps | 3100-7099 | >=7100                |
+| US (BSA)     | 0-2599 bps | 2600-6599 | >=6600                |
+| UK (MLR)     | 0-3099 bps | 3100-7099 | >=7100                |
+| Singapore    | 0-3599 bps | 3600-7599 | >=7600                |
 
 ## Development
 
@@ -173,9 +173,9 @@ cast send $VERIFIER_ADDR "setVerifier(uint8,address)" 0x01 $THRESHOLD_VERIFIER
 Proofs are generated client-side using `@noir-lang/noir_js` and `@aztec/bb.js`:
 
 ```typescript
-import { Noir } from '@noir-lang/noir_js';
-import { UltraHonkBackend } from '@aztec/bb.js';
-import circuit from './circuits/compliance/target/compliance.json';
+import { Noir } from "@noir-lang/noir_js";
+import { UltraHonkBackend } from "@aztec/bb.js";
+import circuit from "./circuits/compliance/target/compliance.json";
 
 const backend = new UltraHonkBackend(circuit.bytecode);
 const noir = new Noir(circuit);
@@ -188,10 +188,10 @@ const inputs = {
   provider_ids: [1, 2, 3, 0, 0, 0, 0, 0],
   num_providers: 3,
   // Public inputs
-  jurisdiction_id: 0,          // EU
-  provider_set_hash: '0x...',
-  config_hash: '0x...',
-  timestamp: '0x...',
+  jurisdiction_id: 0, // EU
+  provider_set_hash: "0x...",
+  config_hash: "0x...",
+  timestamp: "0x...",
   meets_threshold: true,
 };
 
@@ -233,20 +233,8 @@ _Testnet deployments pending. Mainnet after audit._
 ## Security
 
 No external audit has been performed yet. Do not use in production.
-
-The reference implementation includes defenses for:
-
-- **Public input validation**: all 6 proof types validate semantic correctness (config hashes, merkle roots, reporting thresholds) before forwarding to the ZK verifier
-- **Proof replay prevention**: proof hashes keyed on `(proof, proofType)` to prevent cross-type collisions
-- **TOCTOU elimination**: verifier address resolved once per submission, used for both verification and attestation recording
-- **Alignment checks**: public inputs must be 32-byte aligned
-- **Config/root revocation**: compromised configurations and merkle roots can be revoked by the oracle administrator
-- **View verification**: all generated verifiers and the verification path are `view`, preventing reentrancy during proof verification
-
 If you find a vulnerability, email security@xochi.fi.
 
 ## License
 
 Reference implementation: [CC0-1.0](LICENSE) (public domain).
-
-The Xochi ZKP standard is free to implement. Build on it.

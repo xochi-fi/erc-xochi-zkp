@@ -95,8 +95,9 @@ fn main(
     let computed_config_hash = hash8(weight_fields);
     assert(computed_config_hash == config_hash, "Config hash mismatch");
 
-    // 10. Timestamp must be non-zero (basic sanity)
-    assert(timestamp != 0, "Timestamp must be non-zero");
+    // 10. Timestamp must be within reasonable bounds
+    assert(timestamp as u64 > 1609459200, "Timestamp before 2021");
+    assert(timestamp as u64 < 1099511627776, "Timestamp unreasonably far future"); // 2^40
 }
 
 // ---------------------------------------------------------------------------

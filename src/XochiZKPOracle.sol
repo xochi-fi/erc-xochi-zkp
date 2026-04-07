@@ -20,6 +20,9 @@ contract XochiZKPOracle is IXochiZKPOracle {
     /// @notice Pending owner for two-step transfer
     address public pendingOwner;
 
+    /// @notice Whether the contract is paused
+    bool public paused;
+
     /// @notice Deadline for pending owner to accept (48 hours from initiation)
     uint256 internal _ownershipTransferDeadline;
 
@@ -71,12 +74,30 @@ contract XochiZKPOracle is IXochiZKPOracle {
     error InvalidReportingThreshold(bytes32 threshold);
     error CannotRevokeCurrentConfig();
     error OwnershipTransferExpired();
+    error ProofResultNegative();
+    error ContractPaused();
+    error ContractNotPaused();
+    error ConfigHistoryFull();
+    error ConfigAlreadyCurrent();
+    error AlreadyRegistered();
+    error NotRegistered();
 
     event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
     event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
+    event OwnershipTransferCancelled(address indexed cancelledOwner);
+    event Paused(address account);
+    event Unpaused(address account);
+
+    /// @notice Maximum number of entries in the config history array
+    uint256 public constant MAX_CONFIG_HISTORY = 256;
 
     modifier onlyOwner() {
         if (msg.sender != owner) revert Unauthorized();
+        _;
+    }
+
+    modifier whenNotPaused() {
+        if (paused) revert ContractPaused();
         _;
     }
 
@@ -85,6 +106,7 @@ contract XochiZKPOracle is IXochiZKPOracle {
     /// @param initialConfigHash The initial provider weight configuration hash
     constructor(address _verifier, address initialOwner, bytes32 initialConfigHash) {
         if (_verifier == address(0) || initialOwner == address(0)) revert ZeroAddress();
+        if (initialConfigHash == bytes32(0)) revert InvalidConfigHash(bytes32(0));
 
         verifier = IXochiZKPVerifier(_verifier);
         owner = initialOwner;
@@ -109,7 +131,7 @@ contract XochiZKPOracle is IXochiZKPOracle {
         bytes calldata proof,
         bytes calldata publicInputs,
         bytes32 providerSetHash
-    ) external returns (ComplianceAttestation memory attestation) {
+    ) external whenNotPaused returns (ComplianceAttestation memory attestation) {
         JurisdictionConfig.validateJurisdiction(jurisdictionId);
 
         // Validate that caller-supplied parameters match what's in the proof's public inputs.
@@ -126,20 +148,25 @@ contract XochiZKPOracle is IXochiZKPOracle {
             _validateMembershipInputs(publicInputs);
         } else if (proofType == ProofTypes.NON_MEMBERSHIP) {
             _validateNonMembershipInputs(publicInputs);
+        } else {
+            revert ProofTypes.InvalidProofType(proofType);
         }
 
         // Verify proof and check replay (extracted to reduce stack depth)
         (address verifierUsed, bytes32 proofHash) = _verifyAndRecordProof(proofType, proof, publicInputs);
 
-        // Build and store attestation
-        attestation =
-            _buildAttestation(jurisdictionId, proofHash, providerSetHash, keccak256(publicInputs), verifierUsed);
+        // Build and store attestation (providerSetHash only meaningful for COMPLIANCE proofs)
+        bytes32 effectiveProviderSetHash = proofType == ProofTypes.COMPLIANCE ? providerSetHash : bytes32(0);
+        attestation = _buildAttestation(
+            jurisdictionId, proofHash, effectiveProviderSetHash, keccak256(publicInputs), verifierUsed
+        );
 
+        uint256 previousExpiresAt = _attestations[msg.sender][jurisdictionId].expiresAt;
         _attestations[msg.sender][jurisdictionId] = attestation;
         _proofIndex[proofHash] = attestation;
         _attestationHistory[msg.sender][jurisdictionId].push(proofHash);
 
-        emit ComplianceVerified(msg.sender, jurisdictionId, true, proofHash, attestation.expiresAt);
+        emit ComplianceVerified(msg.sender, jurisdictionId, true, proofHash, attestation.expiresAt, previousExpiresAt);
     }
 
     /// @inheritdoc IXochiZKPOracle
@@ -161,6 +188,9 @@ contract XochiZKPOracle is IXochiZKPOracle {
     }
 
     /// @inheritdoc IXochiZKPOracle
+    /// @dev Returns the entire history array. For subjects with many attestations this
+    ///      may exceed RPC response limits. Prefer getAttestationHistoryPaginated() for
+    ///      production use.
     function getAttestationHistory(address subject, uint8 jurisdictionId)
         external
         view
@@ -219,6 +249,8 @@ contract XochiZKPOracle is IXochiZKPOracle {
     /// @param newConfigHash The new configuration hash
     /// @param metadataURI URI pointing to the full config (IPFS, Arweave, etc.)
     function updateProviderConfig(bytes32 newConfigHash, string calldata metadataURI) external onlyOwner {
+        if (newConfigHash == _providerConfigHash) revert ConfigAlreadyCurrent();
+        if (_configHistory.length >= MAX_CONFIG_HISTORY) revert ConfigHistoryFull();
         _providerConfigHash = newConfigHash;
         _configHistory.push(newConfigHash);
         _validConfigs[newConfigHash] = true;
@@ -265,6 +297,7 @@ contract XochiZKPOracle is IXochiZKPOracle {
     /// @notice Register a merkle root as valid for MEMBERSHIP/NON_MEMBERSHIP/ATTESTATION proofs
     /// @param merkleRoot The merkle root to register
     function registerMerkleRoot(bytes32 merkleRoot) external onlyOwner {
+        if (_validMerkleRoots[merkleRoot]) revert AlreadyRegistered();
         _validMerkleRoots[merkleRoot] = true;
         emit MerkleRootRegistered(merkleRoot);
     }
@@ -272,6 +305,7 @@ contract XochiZKPOracle is IXochiZKPOracle {
     /// @notice Revoke a merkle root so proofs using it are no longer accepted
     /// @param merkleRoot The merkle root to revoke
     function revokeMerkleRoot(bytes32 merkleRoot) external onlyOwner {
+        if (!_validMerkleRoots[merkleRoot]) revert NotRegistered();
         _validMerkleRoots[merkleRoot] = false;
         emit MerkleRootRevoked(merkleRoot);
     }
@@ -286,13 +320,17 @@ contract XochiZKPOracle is IXochiZKPOracle {
     /// @notice Register a reporting threshold for PATTERN (anti-structuring) proofs
     /// @param threshold The threshold value (as bytes32-encoded u64)
     function registerReportingThreshold(bytes32 threshold) external onlyOwner {
+        if (_validReportingThresholds[threshold]) revert AlreadyRegistered();
         _validReportingThresholds[threshold] = true;
+        emit ReportingThresholdRegistered(threshold);
     }
 
     /// @notice Revoke a reporting threshold
     /// @param threshold The threshold to revoke
     function revokeReportingThreshold(bytes32 threshold) external onlyOwner {
+        if (!_validReportingThresholds[threshold]) revert NotRegistered();
         _validReportingThresholds[threshold] = false;
+        emit ReportingThresholdRevoked(threshold);
     }
 
     /// @notice Check if a reporting threshold is valid
@@ -302,9 +340,26 @@ contract XochiZKPOracle is IXochiZKPOracle {
         return _validReportingThresholds[threshold];
     }
 
+    /// @notice Pause the contract, blocking new submissions
+    function pause() external onlyOwner {
+        if (paused) revert ContractPaused();
+        paused = true;
+        emit Paused(msg.sender);
+    }
+
+    /// @notice Unpause the contract, resuming submissions
+    function unpause() external onlyOwner {
+        if (!paused) revert ContractNotPaused();
+        paused = false;
+        emit Unpaused(msg.sender);
+    }
+
     /// @notice Begin two-step ownership transfer (48 hour acceptance window)
     function transferOwnership(address newOwner) external onlyOwner {
         if (newOwner == address(0)) revert ZeroAddress();
+        if (pendingOwner != address(0)) {
+            emit OwnershipTransferCancelled(pendingOwner);
+        }
         pendingOwner = newOwner;
         _ownershipTransferDeadline = block.timestamp + 48 hours;
         emit OwnershipTransferStarted(owner, newOwner);
@@ -332,6 +387,7 @@ contract XochiZKPOracle is IXochiZKPOracle {
         returns (address verifierUsed, bytes32 proofHash)
     {
         verifierUsed = verifier.getVerifier(proofType);
+        if (verifierUsed == address(0)) revert ProofVerificationFailed();
         ProofTypes.validatePublicInputs(proofType, publicInputs);
         bytes32[] memory inputs = ProofTypes.decodePublicInputs(publicInputs);
         bool valid = IUltraVerifier(verifierUsed).verify(proof, inputs);
@@ -380,13 +436,16 @@ contract XochiZKPOracle is IXochiZKPOracle {
         bytes32 proofJurisdiction = bytes32(publicInputs[0:32]);
         bytes32 proofProviderSet = bytes32(publicInputs[32:64]);
         bytes32 proofConfigHash = bytes32(publicInputs[64:96]);
+        bytes32 proofMeetsThreshold = bytes32(publicInputs[128:160]);
 
         if (proofJurisdiction != bytes32(uint256(jurisdictionId))) revert PublicInputMismatch();
         if (proofProviderSet != providerSetHash) revert PublicInputMismatch();
         if (!_validConfigs[proofConfigHash]) revert InvalidConfigHash(proofConfigHash);
+        if (proofMeetsThreshold != bytes32(uint256(1))) revert ProofResultNegative();
     }
 
-    /// @dev Validate that the config_hash in RISK_SCORE public inputs is a known config.
+    /// @dev Validate that the config_hash in RISK_SCORE public inputs is a known config
+    ///      and that the result field indicates a positive outcome.
     function _validateRiskScoreInputs(bytes calldata publicInputs) internal view {
         // RISK_SCORE public inputs layout (each 32 bytes):
         //   [0]: proof_type
@@ -395,12 +454,14 @@ contract XochiZKPOracle is IXochiZKPOracle {
         //   [3]: bound_upper
         //   [4]: result
         //   [5]: config_hash
+        bytes32 proofResult = bytes32(publicInputs[128:160]);
         bytes32 proofConfigHash = bytes32(publicInputs[160:192]);
+        if (proofResult != bytes32(uint256(1))) revert ProofResultNegative();
         if (!_validConfigs[proofConfigHash]) revert InvalidConfigHash(proofConfigHash);
     }
 
     /// @dev Validate PATTERN (anti_structuring) public inputs.
-    ///      Ensures reporting_threshold is a registered value and tx_set_hash is non-zero.
+    ///      Ensures result is positive, reporting_threshold is registered, and tx_set_hash is non-zero.
     function _validatePatternInputs(bytes calldata publicInputs) internal view {
         // PATTERN public inputs layout (each 32 bytes):
         //   [0]: analysis_type
@@ -408,6 +469,8 @@ contract XochiZKPOracle is IXochiZKPOracle {
         //   [2]: reporting_threshold
         //   [3]: time_window
         //   [4]: tx_set_hash
+        bytes32 proofResult = bytes32(publicInputs[32:64]);
+        if (proofResult != bytes32(uint256(1))) revert ProofResultNegative();
         bytes32 reportingThreshold = bytes32(publicInputs[64:96]);
         if (!_validReportingThresholds[reportingThreshold]) {
             revert InvalidReportingThreshold(reportingThreshold);
@@ -417,7 +480,7 @@ contract XochiZKPOracle is IXochiZKPOracle {
     }
 
     /// @dev Validate ATTESTATION (tier_verification) public inputs.
-    ///      Ensures merkle_root is a registered root.
+    ///      Ensures is_valid is true and merkle_root is a registered root.
     function _validateAttestationInputs(bytes calldata publicInputs) internal view {
         // ATTESTATION public inputs layout (each 32 bytes):
         //   [0]: provider_id
@@ -425,12 +488,14 @@ contract XochiZKPOracle is IXochiZKPOracle {
         //   [2]: is_valid
         //   [3]: merkle_root
         //   [4]: current_timestamp
+        bytes32 proofIsValid = bytes32(publicInputs[64:96]);
+        if (proofIsValid != bytes32(uint256(1))) revert ProofResultNegative();
         bytes32 merkleRoot = bytes32(publicInputs[96:128]);
         if (!_validMerkleRoots[merkleRoot]) revert InvalidMerkleRoot(merkleRoot);
     }
 
     /// @dev Validate MEMBERSHIP public inputs.
-    ///      Ensures merkle_root is a registered root.
+    ///      Ensures is_member is true and merkle_root is a registered root.
     function _validateMembershipInputs(bytes calldata publicInputs) internal view {
         // MEMBERSHIP public inputs layout (each 32 bytes):
         //   [0]: merkle_root
@@ -439,10 +504,12 @@ contract XochiZKPOracle is IXochiZKPOracle {
         //   [3]: is_member
         bytes32 merkleRoot = bytes32(publicInputs[0:32]);
         if (!_validMerkleRoots[merkleRoot]) revert InvalidMerkleRoot(merkleRoot);
+        bytes32 proofIsMember = bytes32(publicInputs[96:128]);
+        if (proofIsMember != bytes32(uint256(1))) revert ProofResultNegative();
     }
 
     /// @dev Validate NON_MEMBERSHIP public inputs.
-    ///      Ensures merkle_root is a registered root.
+    ///      Ensures is_non_member is true and merkle_root is a registered root.
     function _validateNonMembershipInputs(bytes calldata publicInputs) internal view {
         // NON_MEMBERSHIP public inputs layout (each 32 bytes):
         //   [0]: merkle_root
@@ -451,5 +518,7 @@ contract XochiZKPOracle is IXochiZKPOracle {
         //   [3]: is_non_member
         bytes32 merkleRoot = bytes32(publicInputs[0:32]);
         if (!_validMerkleRoots[merkleRoot]) revert InvalidMerkleRoot(merkleRoot);
+        bytes32 proofIsNonMember = bytes32(publicInputs[96:128]);
+        if (proofIsNonMember != bytes32(uint256(1))) revert ProofResultNegative();
     }
 }

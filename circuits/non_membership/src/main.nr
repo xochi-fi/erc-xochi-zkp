@@ -52,8 +52,9 @@ fn main(
     timestamp: pub Field,             // temporal binding
     is_non_member: pub bool,          // the result
 ) {
-    // 1. Timestamp must be non-zero
-    assert(timestamp != 0, "Timestamp must be non-zero");
+    // 1. Timestamp must be within reasonable bounds
+    assert(timestamp as u64 > 1609459200, "Timestamp before 2021");
+    assert(timestamp as u64 < 1099511627776, "Timestamp unreasonably far future"); // 2^40
 
     // 2. Range-check: all values must fit in u64 to prevent truncation attacks.
     //    Without this, an attacker could craft a ~254-bit Field value that
@@ -122,6 +123,33 @@ fn test_leaf_hash_bound_to_set() {
     let h1 = hash2(val, 1);
     let h2 = hash2(val, 2);
     assert(h1 != h2);
+}
+
+#[test]
+fn test_ordering_fails_when_leaves_equal() {
+    // If low_leaf == high_leaf, there's no room for element
+    let low: u64 = 50;
+    let elem: u64 = 50;
+    let high: u64 = 50;
+    assert(!((low < elem) & (elem < high)));
+}
+
+#[test]
+fn test_ordering_adjacent_values() {
+    // low=49, element=50, high=51 -> valid (tight gap)
+    let low: u64 = 49;
+    let elem: u64 = 50;
+    let high: u64 = 51;
+    assert((low < elem) & (elem < high));
+}
+
+#[test]
+fn test_ordering_boundary_u64_max() {
+    // Element near u64 max boundary
+    let low: u64 = 18446744073709551613; // 2^64 - 3
+    let elem: u64 = 18446744073709551614; // 2^64 - 2
+    let high: u64 = 18446744073709551615; // 2^64 - 1
+    assert((low < elem) & (elem < high));
 }
 
 #[test]

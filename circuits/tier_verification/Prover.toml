@@ -1,0 +1,12 @@
+# Valid KYC credential from provider 42, not expired
+credential_hash = "0x06e460459bc8bb062b18c39324cf2ea46aea0cd229de6f14756eeb528562ea93"
+credential_subject = "123"
+credential_attribute = "999"
+expiry_timestamp = 2000000000
+provider_merkle_index = "0"
+provider_merkle_path = ["0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0", "0"]
+provider_id = "42"
+credential_type = 1
+is_valid = true
+merkle_root = "0x15861259068f1398397423d4b3bad764e19c1a68699115ef9ccd090a8a5eba3e"
+current_timestamp = 1700000000

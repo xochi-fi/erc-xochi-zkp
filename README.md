@@ -10,101 +10,207 @@ This is distinct from view keys (Railgun, Panther) where you trade privately and
 
 ## Proof types
 
-| Type           | Assertion                         | What stays hidden   |
-| -------------- | --------------------------------- | ------------------- |
-| Threshold      | "Amount > X" or "Amount < X"      | Exact amount        |
-| Range          | "Amount in [X, Y]"                | Exact amount        |
-| Membership     | "Address in set S"                | Which element       |
-| Non-membership | "Address NOT in sanctions list S" | List contents       |
-| Pattern        | "No structuring detected"         | Transaction history |
-| Attestation    | "Valid credential exists"         | Credential details  |
+| Type           | ID   | Assertion                         | What stays hidden   | Circuit            |
+| -------------- | ---- | --------------------------------- | ------------------- | ------------------ |
+| Compliance     | 0x01 | "Risk score below threshold"      | Signals, score      | compliance         |
+| Risk Score     | 0x02 | "Score > X" or "Score in [X,Y]"   | Exact score         | risk_score         |
+| Pattern        | 0x03 | "No structuring detected"         | Transaction history | anti_structuring   |
+| Attestation    | 0x04 | "Valid credential exists"         | Credential details  | tier_verification  |
+| Membership     | 0x05 | "Address in authorized set S"     | Which element       | membership         |
+| Non-membership | 0x06 | "Address NOT in sanctions list S" | List contents       | non_membership     |
 
 ## How it works
 
 ```
 User's client fetches signed risk signals from screening providers
   -> Computes risk score locally (deterministic formula, published weights)
-  -> Generates ZK proof that:
+  -> Generates ZK proof (Noir circuit, UltraPlonk backend) that:
        - Signal values were used (hidden)
-       - Published weights were applied correctly (public)
+       - Published weights were applied correctly (public config hash)
        - Score meets jurisdiction threshold (boolean: yes/no)
-  -> Proof submitted on-chain or to verifier
-  -> Verifier confirms proof without learning inputs or exact score
+  -> Proof submitted on-chain to XochiZKPOracle
+  -> Oracle routes to the correct UltraPlonk verifier via XochiZKPVerifier
+  -> Attestation recorded on-chain (subject, jurisdiction, timestamp, proof hash)
 ```
 
 The proof also commits to a timestamp and the screening providers used, enabling retroactive proof-of-innocence if a counterparty is later flagged.
 
-## Retroactive flagging
+## Architecture
 
-Sanctions lists update continuously. An address clean at T=transaction may be flagged at T+90 days. Each transaction's ZK proof commits to:
+```
+                    +------------------+
+                    | XochiZKPOracle   |  <-- submitCompliance(), checkCompliance()
+                    | (attestation     |      getHistoricalProof()
+                    |  storage +       |
+                    |  input validation|  validates config hashes, merkle roots,
+                    |  + registries)   |  reporting thresholds per proof type
+                    +--------+---------+
+                             |
+                             | IUltraVerifier.verify() (view, direct call)
+                             v
+     +----------+----------+----------+----------+----------+----------+
+     |          |          |          |          |          |          |
+     v          v          v          v          v          v          v
+ +-------+ +-------+ +-------+ +-------+ +-------+ +-------+ +--------+
+ |Compli-| |Risk   | |Pattern| |Attest.| |Member | |Non-   | |Verifier|
+ |ance   | |Score  | |       | |       | |ship   | |member | |Router  |
+ +-------+ +-------+ +-------+ +-------+ +-------+ +-------+ +--------+
+ Generated UltraHonk verifiers (bb write_solidity_verifier)
+```
 
-1. Which screening providers were queried
-2. What each returned at T=transaction (clean/flagged)
-3. The oracle's clearing decision
-4. A timestamp binding the proof to that moment
-
-When an address is retroactively flagged, counterparties retrieve the original proof and present it to enforcement. It mathematically demonstrates they couldn't have known. Enforcement can also deconstruct the proof to see which providers the flagged party was using -- useful for identifying screening gaps without compromising uninvolved parties.
-
-## Provider weight tuning
-
-Provider weights aren't static. When retroactively flagged transactions are deconstructed, the providers involved get logged. Providers that consistently appear in flagged transactions get down-weighted. All weight changes are versioned, timestamped, and published openly. The system self-improves from enforcement data.
-
-## Jurisdiction thresholds
-
-| Jurisdiction | Low  | Medium | High | Filing trigger |
-| ------------ | ---- | ------ | ---- | -------------- |
-| EU (AMLD6)   | 0-30 | 31-70  | >70  | High           |
-| US (BSA)     | 0-25 | 26-65  | >65  | High           |
-| UK (MLR)     | 0-30 | 31-70  | >70  | High           |
-| Singapore    | 0-35 | 36-75  | >75  | High           |
+Each of the 6 proof types has its own Noir circuit and generates a separate UltraPlonk verifier contract via Barretenberg (`bb write_solidity_verifier`).
 
 ## Repository structure
 
 ```
 /
-  README.md
-  LICENSE                          # CC0-1.0 (public domain)
   eip-draft_xochi-zkp.md          # The EIP document itself
+  foundry.toml                    # Foundry project config
   src/
-    IXochiZKPVerifier.sol          # Verifier interface
-    IXochiZKPOracle.sol            # Oracle interface
-    XochiZKPVerifier.sol           # Reference verifier
-    XochiZKPOracle.sol             # Reference oracle
+    interfaces/
+      IXochiZKPVerifier.sol       # Verifier interface (ERC standard)
+      IXochiZKPOracle.sol         # Oracle interface (ERC standard)
+      IUltraVerifier.sol          # Interface for generated verifiers
     libraries/
-      ProofTypes.sol               # Proof type definitions
-      JurisdictionConfig.sol       # Threshold configurations
+      ProofTypes.sol              # Proof type definitions and encoding
+      JurisdictionConfig.sol      # Threshold configurations per jurisdiction
+    XochiZKPVerifier.sol          # Reference verifier (routes to UltraPlonk)
+    XochiZKPOracle.sol            # Reference oracle (attestation storage)
+    generated/                    # Auto-generated UltraPlonk verifiers (do not edit)
   test/
-    XochiZKPVerifier.t.sol         # Verifier tests
-    XochiZKPOracle.t.sol           # Oracle tests
-    fixtures/                      # Test proof fixtures
+    XochiZKPVerifier.t.sol        # Verifier unit tests
+    XochiZKPOracle.t.sol          # Oracle unit + fuzz + invariant tests
+    Integration.t.sol             # End-to-end tests with real proofs
+    fixtures/                     # Test proof fixtures (generated by scripts/generate-fixtures.sh)
   script/
-    Deploy.s.sol                   # Deployment script
+    Deploy.s.sol                  # Deployment script
   circuits/
-    compliance.nr                  # Noir circuit: compliance proof
-    anti_structuring.nr            # Noir circuit: structuring detection
-    risk_score.nr                  # Noir circuit: risk score computation
-    tier_verification.nr           # Noir circuit: trust tier proof
-  foundry.toml
+    shared/                       # Shared Noir library
+      src/lib.nr                  # Types, hashing, Merkle, risk score computation
+    compliance/                   # Compliance proof circuit (0x01)
+      src/main.nr                 # Risk score below jurisdiction threshold
+    risk_score/                   # Risk score circuit (0x02)
+      src/main.nr                 # Threshold and range proofs
+    anti_structuring/             # Pattern detection circuit (0x03)
+      src/main.nr                 # Structuring, velocity, round-amount analysis
+    tier_verification/            # Attestation circuit (0x04)
+      src/main.nr                 # KYC tier, accreditation proofs
+    membership/                   # Membership proof circuit (0x05)
+      src/main.nr                 # Merkle inclusion proof for authorized sets
+    non_membership/               # Non-membership proof circuit (0x06)
+      src/main.nr                 # Sorted Merkle adjacency proof for exclusion
 ```
+
+## Jurisdiction thresholds
+
+Risk scores are in basis points (0-10000 = 0.00%-100.00%). Thresholds are published on-chain.
+
+| Jurisdiction | Low         | Medium       | High (filing trigger) |
+| ------------ | ----------- | ------------ | --------------------- |
+| EU (AMLD6)   | 0-3099 bps  | 3100-7099    | >=7100                |
+| US (BSA)     | 0-2599 bps  | 2600-6599    | >=6600                |
+| UK (MLR)     | 0-3099 bps  | 3100-7099    | >=7100                |
+| Singapore    | 0-3599 bps  | 3600-7599    | >=7600                |
 
 ## Development
 
+### Prerequisites
+
+- [Foundry](https://book.getfoundry.sh/getting-started/installation) (forge, cast, anvil)
+- [Noir](https://noir-lang.org/docs/getting_started/installation) (nargo >= 1.0.0)
+- [Barretenberg](https://github.com/AztecProtocol/aztec-packages/tree/master/barretenberg) (bb)
+
+### Setup
+
 ```bash
-# Build
+# Install dependencies
+forge install
+
+# Build contracts
 forge build
 
-# Test
+# Run tests
 forge test
 
-# Coverage
-forge coverage
-
-# Compile Noir circuits
-cd circuits && nargo compile
-
-# Deploy (testnet)
-forge script script/Deploy.s.sol --rpc-url $RPC_URL --broadcast
+# Run tests with verbosity
+forge test -vvv
 ```
+
+### Circuit development
+
+```bash
+# Compile a circuit
+cd circuits/compliance && nargo compile
+
+# Run circuit tests
+cd circuits/compliance && nargo test
+
+# Generate witness (requires Prover.toml with inputs)
+cd circuits/compliance && nargo execute
+
+# Generate fixtures + verifier for a single circuit (recommended)
+./scripts/generate-fixtures.sh compliance
+
+# Generate fixtures + verifiers for all circuits
+./scripts/generate-fixtures.sh
+```
+
+### Deployment
+
+```bash
+# Copy and fill in environment variables
+cp .env.example .env
+
+# Deploy to testnet
+forge script script/Deploy.s.sol --rpc-url $SEPOLIA_RPC_URL --broadcast
+
+# After deploying generated verifiers, register them:
+cast send $VERIFIER_ADDR "setVerifier(uint8,address)" 0x01 $THRESHOLD_VERIFIER
+```
+
+## Client-side proof generation
+
+Proofs are generated client-side using `@noir-lang/noir_js` and `@aztec/bb.js`:
+
+```typescript
+import { Noir } from '@noir-lang/noir_js';
+import { UltraPlonkBackend } from '@aztec/bb.js';
+import circuit from './circuits/compliance/target/compliance.json';
+
+const backend = new UltraPlonkBackend(circuit.bytecode);
+const noir = new Noir(circuit);
+
+// Private inputs never leave the client
+const inputs = {
+  signals: [20, 30, 10, 0, 0, 0, 0, 0],
+  weights: [50, 30, 20, 0, 0, 0, 0, 0],
+  weight_sum: 100,
+  provider_ids: [1, 2, 3, 0, 0, 0, 0, 0],
+  num_providers: 3,
+  // Public inputs
+  jurisdiction_id: 0,          // EU
+  provider_set_hash: '0x...',
+  config_hash: '0x...',
+  timestamp: '0x...',
+  meets_threshold: true,
+};
+
+const { witness } = await noir.execute(inputs);
+const proof = await backend.generateProof(witness);
+
+// Submit proof.proof and proof.publicInputs to XochiZKPOracle.submitCompliance()
+```
+
+## Retroactive flagging
+
+Sanctions lists update continuously. An address clean at T=transaction may be flagged at T+90 days. Each compliance attestation records:
+
+1. Which screening providers were queried (provider set hash)
+2. The oracle's clearing decision (meetsThreshold boolean)
+3. A timestamp binding the proof to that block
+4. The full proof hash for retrieval via `getHistoricalProof()`
+
+Counterparties retrieve the original attestation to demonstrate they couldn't have known. The proof is immutable on-chain.
 
 ## Deployments
 
@@ -117,15 +223,25 @@ _Testnet deployments pending. Mainnet after audit._
 
 ## Related
 
-- [Xochi Whitepaper](https://xochi.fi/whitepaper) -- full protocol specification
-- [ZKSAR Framework](https://github.com/xochi-fi/xochi) -- zero-knowledge compliance framework docs
-- [ERC-5564](https://eips.ethereum.org/EIPS/eip-5564) -- stealth addresses (used by Xochi for L1 privacy)
+- [ERC Draft](eip-draft_xochi-zkp.md) -- the EIP specification
+- [nahualli](https://github.com/xochi-fi/nahualli) -- vanity stealth key grinder for ERC-5564
+- [ERC-5564](https://eips.ethereum.org/EIPS/eip-5564) -- stealth addresses (complementary)
 - [ERC-6538](https://eips.ethereum.org/EIPS/eip-6538) -- stealth meta-address registry
-- [ScopeLift stealth-address-sdk](https://github.com/ScopeLift/stealth-address-sdk) -- canonical ERC-5564/6538 TypeScript implementation
+- [Noir Language](https://noir-lang.org/) -- ZK circuit language by Aztec
+- [Barretenberg](https://github.com/AztecProtocol/aztec-packages) -- UltraPlonk proving backend
 
 ## Security
 
-No audit has been performed yet. Do not use in production.
+No external audit has been performed yet. Do not use in production.
+
+The reference implementation includes defenses for:
+
+- **Public input validation** -- all 6 proof types validate semantic correctness (config hashes, merkle roots, reporting thresholds) before forwarding to the ZK verifier
+- **Proof replay prevention** -- proof hashes keyed on `(proof, proofType)` to prevent cross-type collisions
+- **TOCTOU elimination** -- verifier address resolved once per submission, used for both verification and attestation recording
+- **Alignment checks** -- public inputs must be 32-byte aligned
+- **Config/root revocation** -- compromised configurations and merkle roots can be revoked by the oracle administrator
+- **View verification** -- all generated verifiers and the verification path are `view`, preventing reentrancy during proof verification
 
 If you find a vulnerability, email security@xochi.fi.
 

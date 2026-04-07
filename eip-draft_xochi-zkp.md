@@ -31,27 +31,35 @@ This ERC defines a standard where compliance is proven cryptographically at tran
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in RFC 2119.
 
+### Terminology
+
+- **providerSetHash**: A commitment to the specific set of screening providers and their weights used for a particular compliance proof. Included in each attestation for retroactive verification.
+- **providerConfigHash**: A hash of the global provider weight configuration published by the oracle administrator. Versioned on-chain -- weight changes push a new entry to the config history.
+- **attestation TTL**: The duration (in seconds) for which a compliance attestation remains valid after submission. Expired attestations remain queryable via `getHistoricalProof()` but are not considered valid by `checkCompliance()`.
+
 ### Proof Types
 
-Implementations MUST support the following proof types:
+Implementations MUST support the following proof types. Each type corresponds to a separate ZK circuit with its own verification key.
 
-| Type ID | Name           | Public inputs                   | Private inputs       |
-| ------- | -------------- | ------------------------------- | -------------------- |
-| 0x01    | Threshold      | direction (gt/lt), threshold    | amount               |
-| 0x02    | Range          | lower bound, upper bound        | amount               |
-| 0x03    | Membership     | set commitment (Merkle root)    | element, Merkle path |
-| 0x04    | Non-membership | set commitment (Merkle root)    | element, Merkle path |
-| 0x05    | Pattern        | analysis type, result (boolean) | transaction set      |
-| 0x06    | Attestation    | provider ID, validity (boolean) | credential data      |
+| Type ID | Name           | Circuit            | Public inputs                                                                          | Private inputs                                              |
+| ------- | -------------- | ------------------ | -------------------------------------------------------------------------------------- | ----------------------------------------------------------- |
+| 0x01    | Compliance     | compliance         | jurisdiction_id, provider_set_hash, config_hash, timestamp, meets_threshold            | signals, weights, weight_sum, provider_ids, num_providers   |
+| 0x02    | Risk Score     | risk_score         | proof_type (threshold/range), direction, bound_lower, bound_upper, result, config_hash | signals, weights, weight_sum                                |
+| 0x03    | Pattern        | anti_structuring   | analysis_type, result, reporting_threshold, time_window, tx_set_hash                   | amounts, timestamps, num_transactions                       |
+| 0x04    | Attestation    | tier_verification  | provider_id, credential_type, is_valid, merkle_root, current_timestamp                 | credential_hash, subject, attribute, expiry, merkle_proof   |
+| 0x05    | Membership     | membership         | merkle_root, set_id, timestamp, is_member                                              | element, merkle_index, merkle_path                          |
+| 0x06    | Non-membership | non_membership     | merkle_root, set_id, timestamp, is_non_member                                          | element, low_leaf, high_leaf, low/high indices, low/high paths |
 
 ### Verifier Interface
+
+The verifier routes proof verification to per-proof-type verification contracts. Each circuit produces a separate verifier via the ZK backend (e.g., `bb contract` for UltraPlonk).
 
 ```solidity
 interface IXochiZKPVerifier {
     /// @notice Verify a zero-knowledge compliance proof
     /// @param proofType The type of proof (0x01-0x06)
     /// @param proof The encoded proof data
-    /// @param publicInputs The public inputs to the verification circuit
+    /// @param publicInputs The public inputs to the verification circuit (packed bytes32 values)
     /// @return valid Whether the proof is valid
     function verifyProof(
         uint8 proofType,
@@ -69,6 +77,11 @@ interface IXochiZKPVerifier {
         bytes[] calldata proofs,
         bytes[] calldata publicInputs
     ) external view returns (bool valid);
+
+    /// @notice Get the address of the verifier contract for a proof type
+    /// @param proofType The proof type (0x01-0x06)
+    /// @return verifier The verifier contract address (address(0) if not set)
+    function getVerifier(uint8 proofType) external view returns (address verifier);
 }
 ```
 
@@ -81,37 +94,51 @@ interface IXochiZKPOracle {
         uint8 jurisdictionId;
         bool meetsThreshold;
         uint256 timestamp;
+        uint256 expiresAt;
         bytes32 proofHash;
         bytes32 providerSetHash;
+        bytes32 publicInputsHash;
+        address verifierUsed;     // verifier contract address at submission time
     }
 
     event ComplianceVerified(
         address indexed subject,
         uint8 indexed jurisdictionId,
         bool meetsThreshold,
-        bytes32 proofHash
+        bytes32 proofHash,
+        uint256 expiresAt
     );
 
     event ProviderWeightsUpdated(
         bytes32 indexed configHash,
-        uint256 timestamp
+        uint256 timestamp,
+        string metadataURI
     );
+
+    event AttestationTTLUpdated(uint256 oldTTL, uint256 newTTL);
+    event ConfigRevoked(bytes32 indexed configHash);
+    event MerkleRootRegistered(bytes32 indexed merkleRoot);
+    event MerkleRootRevoked(bytes32 indexed merkleRoot);
 
     /// @notice Submit a compliance proof and record the attestation
     /// @param jurisdictionId Target jurisdiction (0=EU, 1=US, 2=UK, 3=SG)
+    /// @param proofType The proof type for verifier routing (0x01-0x06)
     /// @param proof The ZK proof data
-    /// @param publicInputs Public inputs including threshold result
+    /// @param publicInputs Public inputs matching the circuit's pub parameters
+    /// @param providerSetHash Hash of provider IDs and weights used for screening
     /// @return attestation The recorded compliance attestation
     function submitCompliance(
         uint8 jurisdictionId,
+        uint8 proofType,
         bytes calldata proof,
-        bytes calldata publicInputs
+        bytes calldata publicInputs,
+        bytes32 providerSetHash
     ) external returns (ComplianceAttestation memory attestation);
 
-    /// @notice Check if an address has a valid compliance attestation
+    /// @notice Check if an address has a valid (non-expired) compliance attestation
     /// @param subject The address to check
     /// @param jurisdictionId The jurisdiction to check against
-    /// @return valid Whether a valid attestation exists
+    /// @return valid Whether a valid, non-expired attestation exists
     /// @return attestation The attestation if valid
     function checkCompliance(
         address subject,
@@ -125,39 +152,84 @@ interface IXochiZKPOracle {
         bytes32 proofHash
     ) external view returns (ComplianceAttestation memory attestation);
 
+    /// @notice Get all attestation hashes for a subject in a jurisdiction
+    /// @param subject The address to query
+    /// @param jurisdictionId The jurisdiction
+    /// @return proofHashes Array of proof hashes for historical lookup
+    function getAttestationHistory(
+        address subject,
+        uint8 jurisdictionId
+    ) external view returns (bytes32[] memory proofHashes);
+
     /// @notice Get the current provider weight configuration hash
     /// @return configHash Hash of current provider weights
     function providerConfigHash() external view returns (bytes32 configHash);
+
+    /// @notice Get the current attestation time-to-live
+    /// @return ttl Duration in seconds that attestations remain valid
+    function attestationTTL() external view returns (uint256 ttl);
 }
 ```
 
 ### Jurisdiction Configuration
 
-Implementations MUST publish jurisdiction thresholds openly:
+Implementations MUST publish jurisdiction thresholds openly. Risk scores are expressed in basis points (0-10000 = 0.00%-100.00%).
 
-| ID  | Jurisdiction | Low  | Medium | High | Filing trigger |
-| --- | ------------ | ---- | ------ | ---- | -------------- |
-| 0   | EU (AMLD6)   | 0-30 | 31-70  | >70  | High           |
-| 1   | US (BSA)     | 0-25 | 26-65  | >65  | High           |
-| 2   | UK (MLR)     | 0-30 | 31-70  | >70  | High           |
-| 3   | Singapore    | 0-35 | 36-75  | >75  | High           |
+| ID  | Jurisdiction | Low (bps)   | Medium (bps) | High / Filing trigger (bps) |
+| --- | ------------ | ----------- | ------------ | --------------------------- |
+| 0   | EU (AMLD6)   | 0-3099      | 3100-7099    | >=7100                      |
+| 1   | US (BSA)     | 0-2599      | 2600-6599    | >=6600                      |
+| 2   | UK (MLR)     | 0-3099      | 3100-7099    | >=7100                      |
+| 3   | Singapore    | 0-3599      | 3600-7599    | >=7600                      |
+
+### Attestation Lifecycle
+
+Compliance attestations have a configurable time-to-live (TTL):
+
+- Default TTL: 24 hours
+- Minimum TTL: 1 hour
+- Maximum TTL: 30 days
+- `expiresAt = block.timestamp + attestationTTL` at submission time
+
+`checkCompliance()` MUST return `false` for expired attestations. Expired attestations MUST remain retrievable via `getHistoricalProof()` for proof-of-innocence purposes. The TTL is updatable by the oracle administrator via `updateAttestationTTL()`.
 
 ### Provider Weight Publication
 
-Implementations SHOULD publish provider weights as an on-chain configuration hash. Weight changes MUST emit `ProviderWeightsUpdated` with the new configuration hash and timestamp. Historical configurations SHOULD be retrievable for proof-of-innocence verification.
+Implementations SHOULD publish provider weights as an on-chain configuration hash. Weight changes MUST emit `ProviderWeightsUpdated` with the new configuration hash, timestamp, and an optional `metadataURI` pointing to the full configuration (e.g., on IPFS or Arweave).
+
+Provider configuration MUST be versioned. Implementations SHOULD maintain a history of configuration hashes to support retroactive verification -- determining which weights were active when a particular proof was generated. Implementations SHOULD support revoking historical configuration hashes when a configuration is discovered to be flawed. The currently active configuration MUST NOT be revocable.
+
+### Proof Type Routing
+
+Implementations MUST maintain a registry mapping each proof type to a per-circuit verifier contract. Each ZK circuit (compiled separately) produces its own verification key and verifier contract. The main verifier contract acts as a router:
+
+1. Caller specifies `proofType` (0x01-0x06)
+2. Router looks up the registered verifier for that type
+3. Public inputs are decoded from packed `bytes` to `bytes32[]`
+4. The per-circuit verifier's `verify(bytes, bytes32[])` is called
+
+Verifier addresses are updatable to allow circuit upgrades. Implementations SHOULD use a two-step ownership transfer pattern for administrative operations.
+
+### Public Input Validation
+
+Implementations MUST validate public inputs semantically for each proof type before forwarding to the per-circuit verifier. The ZK proof guarantees internal consistency (e.g., that the score was correctly computed from the committed inputs), but the oracle MUST verify that those committed inputs match the expected context (e.g., that the config hash is a known configuration, that the merkle root belongs to a registered set). Without this validation, a valid proof generated for one context can be replayed in a different context.
+
+Public inputs MUST be 32-byte aligned. Implementations MUST reject `publicInputs` where `length % 32 != 0`.
 
 ### Risk Score Computation
 
 The risk score formula MUST be deterministic and publicly verifiable:
 
 ```
-RiskScore = SUM(weight_i * signal_i)
+RiskScore_bps = SUM(signal_i * weight_i) * 100 / weight_sum
 ```
 
-Where `weight_i` are published provider weights and `signal_i` are provider screening results. The ZK proof commits to:
+Where `signal_i` are provider screening results (0-100), `weight_i` are published provider weights, and `weight_sum` is the sum of all active weights. The result is in basis points (0-10000).
+
+The ZK proof commits to:
 
 - Signal values (hidden)
-- Weights used (public, must match published config)
+- Weights used (public via config_hash, must match published config)
 - Resulting score (hidden)
 - Whether jurisdiction threshold was crossed (revealed as boolean)
 
@@ -165,12 +237,12 @@ Where `weight_i` are published provider weights and `signal_i` are provider scre
 
 Each compliance proof MUST commit to:
 
-1. Provider IDs used for screening (hidden, but deconstructable by enforcement)
+1. Provider IDs used for screening (committed via providerSetHash)
 2. Results returned by each provider at proof time (hidden)
-3. The oracle's clearing decision (revealed)
+3. The oracle's clearing decision (revealed as meetsThreshold boolean)
 4. A timestamp binding the proof to a specific block
 
-This enables proof-of-innocence: counterparties to retroactively flagged addresses can present the original proof demonstrating the address was clean at transaction time.
+This enables proof-of-innocence: counterparties to retroactively flagged addresses can present the original attestation (retrieved via `getHistoricalProof()`) demonstrating the address was clean at transaction time. The on-chain record is immutable and independently verifiable.
 
 ## Rationale
 
@@ -181,6 +253,10 @@ This enables proof-of-innocence: counterparties to retroactively flagged address
 **Why on-chain attestations?** Off-chain attestations can be forged, lost, or denied. On-chain records are immutable, timestamped, and independently verifiable. This is critical for proof-of-innocence: the proof must be retrievable months or years after the original transaction.
 
 **Why not Privacy Pools inclusion/exclusion proofs?** Privacy Pools prove set membership ("I'm not in the OFAC set"). This ERC proves compliance with specific rules ("my risk score under jurisdiction X is below threshold Y using providers A, B, C"). Set membership is a subset of what's needed for regulatory compliance.
+
+**Why attestation TTL?** Compliance status is not permanent. A user who was compliant yesterday may not be compliant today -- screening providers update their data continuously. The TTL forces periodic re-attestation while keeping the window configurable per deployment context.
+
+**Why six proof types?** Each proof type maps to a separate ZK circuit with distinct constraint logic. Compliance handles the core risk score check. Risk Score provides standalone threshold/range proofs. Pattern detects structuring behaviors. Attestation verifies credentials from authorized providers. Membership proves inclusion in an authorized set (whitelist). Non-membership proves exclusion from a sanctions list via sorted Merkle tree adjacency. This separation keeps individual circuits small and auditable.
 
 ## Backwards Compatibility
 
@@ -197,6 +273,21 @@ This ERC introduces new interfaces and does not modify existing standards. It is
 **Regulatory acceptance.** This standard provides a technical mechanism for ZK compliance. Whether specific jurisdictions accept ZK proofs as sufficient compliance evidence is a legal question, not a technical one. The VARA (Dubai) definition of "anonymity-enhanced crypto" excludes assets with "mitigating technologies" for traceability -- this standard provides exactly that technology.
 
 **Front-running the oracle.** Compliance proofs are generated before settlement. An adversary who observes a proof submission could infer a trade is about to occur. Implementations SHOULD batch proof submissions or submit them as part of the settlement transaction to minimize information leakage.
+
+**Administrative operations.** Verifier contract updates and provider weight changes are privileged operations. Implementations SHOULD use a two-step ownership transfer pattern (transferOwnership + acceptOwnership) to prevent accidental transfer to an incorrect address. Critical operations (verifier replacement, TTL changes) SHOULD be timelocked in production deployments.
+
+**Public input validation.** Implementations MUST validate public inputs for every proof type, not just the primary compliance proof. Without validation, a prover can generate a proof for one context (e.g., a lenient jurisdiction's reporting threshold) and submit it for a different context. Specifically:
+
+- COMPLIANCE and RISK_SCORE proofs MUST validate `config_hash` against a registry of known configurations.
+- COMPLIANCE proofs MUST validate `jurisdiction_id` and `provider_set_hash` against caller-supplied parameters.
+- PATTERN (anti-structuring) proofs MUST validate `reporting_threshold` against a per-jurisdiction registry.
+- MEMBERSHIP, NON_MEMBERSHIP, and ATTESTATION proofs MUST validate `merkle_root` against a registry of known roots.
+
+**Proof replay prevention.** Proof hashes MUST be keyed on both the proof bytes and the proof type: `keccak256(abi.encodePacked(proof, proofType))`. Keying on proof bytes alone would prevent the same bytes from being submitted for a different proof type, which is an unnecessary restriction.
+
+**Config and root revocation.** Provider configuration hashes and merkle roots SHOULD be revocable. Without revocation, a discovered-to-be-flawed configuration or a compromised merkle tree remains accepted forever. Implementations MUST NOT allow revoking the currently active provider configuration.
+
+**Verifier TOCTOU.** Implementations MUST resolve the verifier address once per submission and use it for both proof verification and attestation recording. A time-of-check/time-of-use gap between address resolution and proof verification could allow the recorded `verifierUsed` to diverge from the actual verifier if a verifier upgrade occurs mid-transaction.
 
 ## Copyright
 

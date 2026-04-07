@@ -1,0 +1,8 @@
+[package]
+name = "anti_structuring"
+type = "bin"
+authors = ["DROO", "Bloo"]
+compiler_version = ">=1.0.0"
+
+[dependencies]
+xochi_shared = { path = "../shared" }

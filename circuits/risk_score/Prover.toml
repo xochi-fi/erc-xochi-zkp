@@ -1,0 +1,9 @@
+signals = [60, 0, 0, 0, 0, 0, 0, 0]
+weights = [100, 0, 0, 0, 0, 0, 0, 0]
+weight_sum = 100
+proof_type = 1
+direction = 1
+bound_lower = 5000
+bound_upper = 0
+result = true
+config_hash = "0x18574f427f33c6c77af53be06544bd749c9a1db855599d950af61ea613df8405"

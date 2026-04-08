@@ -15,7 +15,7 @@
  */
 
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { Noir } from "@noir-lang/noir_js";
 import { Barretenberg, UltraHonkBackend } from "@aztec/bb.js";
@@ -43,7 +43,9 @@ import {
 const REPO_ROOT = resolve(import.meta.dirname, "../..");
 
 function loadCircuit(name: string) {
-  const path = resolve(REPO_ROOT, `circuits/${name}/target/${name}.json`);
+  const perProject = resolve(REPO_ROOT, `circuits/${name}/target/${name}.json`);
+  const workspace = resolve(REPO_ROOT, `circuits/target/${name}.json`);
+  const path = existsSync(perProject) ? perProject : workspace;
   return JSON.parse(readFileSync(path, "utf-8"));
 }
 

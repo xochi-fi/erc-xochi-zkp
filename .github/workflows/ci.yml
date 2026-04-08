@@ -103,7 +103,8 @@ jobs:
       - name: Compile circuits
         run: |
           export PATH="$HOME/.nargo/bin:$PATH"
-          cd circuits && nargo compile --workspace
+          cd circuits && nargo compile --workspace 2>&1
+          ls -la compliance/target/ risk_score/target/ membership/target/ non_membership/target/ 2>&1 || true
 
       - name: Build contracts
         run: forge build

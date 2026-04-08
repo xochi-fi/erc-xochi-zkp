@@ -72,6 +72,29 @@
 - Refactored Oracle + Verifier to inherit shared base contracts
 </details>
 
+## Security hardening
+
+### High priority
+
+- [ ] **Proof front-running mitigation**: Proofs are not bound to msg.sender. An attacker watching the mempool can copy a user's proof bytes and submit first, burning the proof (ProofAlreadyUsed) while the attacker gets a meaningless attestation. Mitigations: (a) commit-reveal scheme, (b) add subject address as a public circuit input, or (c) use Flashbots/private mempool for submissions. Document as known limitation at minimum.
+- [ ] **Circuit timestamp staleness check**: The Oracle accepts any timestamp in the proof's public inputs (circuits only enforce >2021, <2^40). A proof generated weeks ago can be submitted today. Add on-chain check: `|block.timestamp - proofTimestamp| < MAX_PROOF_AGE` (e.g., 1 hour). Applies to COMPLIANCE (offset 96:128), ATTESTATION (offset 128:160), MEMBERSHIP/NON_MEMBERSHIP (offset 64:96).
+- [ ] **Pattern time_window not validated on-chain**: The Oracle checks reporting_threshold against a registry but does not validate time_window. A prover can set time_window=1 second, making velocity checks trivially pass. Register valid time_windows alongside thresholds, or enforce a minimum (e.g., 24h).
+- [ ] **Run Slither + Mythril static analysis**: No static analysis has been run on the contracts. Slither catches common patterns (reentrancy, unchecked returns, etc.), Mythril finds symbolic execution bugs. Add to CI.
+
+### Medium priority
+
+- [ ] **setVerifier code existence check**: `setVerifier(proofType, addr)` accepts any address, including EOAs or contracts without `verify()`. Add `addr.code.length > 0` check. Consider a dry-run verification call.
+- [ ] **Per-proof-type pause**: Currently pause() stops all proof types. A compromised verifier for one type requires pausing the entire system. Add `pauseProofType(uint8)` / `unpauseProofType(uint8)` for surgical response.
+- [ ] **Emergency verifier revocation**: If a verifier is compromised, setting a new one still allows the old one to be used via `verifyProofAtVersion`. Add ability to revoke a specific version from the history.
+- [ ] **Formal verification of jurisdiction thresholds**: The Noir `get_high_threshold()` and Solidity `JurisdictionConfig.getThresholds()` must match exactly. Currently verified by inspection only. Write a cross-validation test (forge ffi calling nargo to compute thresholds, compare against Solidity).
+- [ ] **Config history cleanup**: `MAX_CONFIG_HISTORY = 256` is a hard cap with no cleanup mechanism. After 256 updates, the Oracle is permanently stuck. Add `compactConfigHistory()` that removes revoked entries, or increase the cap.
+
+### Low priority
+
+- [ ] **Attestation history gas griefing**: `_attestationHistory[subject][jurisdiction]` is unbounded. Repeated submissions grow the array, increasing gas for `getAttestationHistory()`. Not exploitable (submitter pays gas) but worth documenting for integrators using `getAttestationHistory` vs paginated variant.
+- [ ] **ProofTypes.decodePublicInputs assembly optimization**: The loop decodes 32-byte slots one at a time with calldata slicing. A `calldatacopy` into memory would be cheaper for large input counts.
+- [ ] **Add EIP-712 typed data hashing**: For off-chain attestation verification, typed hashing would let wallets display structured data instead of raw bytes.
+
 ## Low-priority test gaps
 
 - [ ] SDK `.todo()` tests for pattern + attestation circuits (blocked on circuit builds in CI)

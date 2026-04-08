@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+env:
+  FOUNDRY_PROFILE: ci
+  NARGO_VERSION: 1.0.0-beta.19
+  BB_VERSION: 4.0.0-nightly.20260120
+
+jobs:
+  solidity:
+    name: Solidity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Check formatting
+        run: forge fmt --check
+
+      - name: Build contracts
+        run: forge build --sizes
+
+      - name: Run tests
+        run: forge test -vvv
+
+  circuits:
+    name: Noir Circuits
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Cache nargo
+        uses: actions/cache@v4
+        with:
+          path: ~/.nargo
+          key: nargo-${{ env.NARGO_VERSION }}
+
+      - name: Install nargo
+        run: |
+          curl -L https://noirup.dev | bash
+          export PATH="$HOME/.nargo/bin:$PATH"
+          noirup -v ${{ env.NARGO_VERSION }}
+          nargo --version
+
+      - name: Run circuit tests
+        run: |
+          export PATH="$HOME/.nargo/bin:$PATH"
+          cd circuits && nargo test --workspace
+
+  sdk:
+    name: SDK
+    runs-on: ubuntu-latest
+    needs: [solidity, circuits]
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Install nargo
+        run: |
+          curl -L https://noirup.dev | bash
+          export PATH="$HOME/.nargo/bin:$PATH"
+          noirup -v ${{ env.NARGO_VERSION }}
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Compile circuits
+        run: |
+          export PATH="$HOME/.nargo/bin:$PATH"
+          cd circuits && nargo compile --workspace
+
+      - name: Build contracts
+        run: forge build
+
+      - name: Run SDK tests
+        run: npm run test:sdk

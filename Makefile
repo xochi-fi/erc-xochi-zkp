@@ -3,7 +3,7 @@
 FOUNDRY_BIN := $(HOME)/.config/.foundry/bin
 FORGE := $(FOUNDRY_BIN)/forge
 NARGO := nargo
-CIRCUITS := compliance risk_score anti_structuring tier_verification membership non_membership
+CIRCUITS := compliance risk_score pattern attestation membership non_membership
 
 help: ## Show this help
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "\033[36m%-20s\033[0m %s\n", $$1, $$2}'
@@ -16,10 +16,7 @@ build-sol: ## Compile Solidity contracts
 	$(FORGE) build
 
 build-noir: ## Compile all Noir circuits
-	@for c in $(CIRCUITS); do \
-		echo "compiling $$c..."; \
-		cd circuits/$$c && $(NARGO) compile && cd ../..; \
-	done
+	cd circuits && $(NARGO) compile --workspace
 
 # ── Test ─────────────────────────────────────────────────────
 
@@ -32,10 +29,7 @@ test-sol-v: ## Run Solidity tests verbose
 	$(FORGE) test -vvv
 
 test-noir: ## Run all Noir circuit tests
-	@for c in $(CIRCUITS); do \
-		echo "testing $$c..."; \
-		cd circuits/$$c && $(NARGO) test && cd ../..; \
-	done
+	cd circuits && $(NARGO) test --workspace
 
 test-sdk: ## Run TS consumer SDK tests (noir_js + bb.js + anvil)
 	npm run test:sdk

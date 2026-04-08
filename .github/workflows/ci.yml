@@ -27,10 +27,24 @@ jobs:
         run: forge fmt --check
 
       - name: Build contracts
-        run: forge build --sizes
+        run: |
+          forge build --sizes 2>&1 | tee /tmp/sizes.txt
+          # Check our contracts stay under 24KB (generated UltraHonk verifiers excluded --
+          # they are ~24.6KB by design and deploy with linked libraries)
+          if grep -E '^\|' /tmp/sizes.txt \
+            | grep -v 'AttestationVerifier\|ComplianceVerifier\|MembershipVerifier\|NonMembershipVerifier\|PatternVerifier\|RiskScoreVerifier' \
+            | grep -v 'CommitmentSchemeLib\|FrLib\|TranscriptLib\|EcLib\|UltraLib\|RelationsLib' \
+            | awk -F'|' '{gsub(/[ ,]/,"",$4); if ($4+0 < 0) { print "OVER LIMIT: "$0; found=1}} END {exit (found ? 1 : 0)}'; then
+            echo "::error::Contract exceeds 24KB size limit"
+            exit 1
+          fi
+          echo "All non-generated contracts within 24KB limit"
 
       - name: Run tests
         run: forge test -vvv
+
+      - name: Check gas snapshot
+        run: forge snapshot --check --tolerance 1
 
   circuits:
     name: Noir Circuits

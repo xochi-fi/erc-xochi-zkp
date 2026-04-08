@@ -45,8 +45,8 @@ Implementations MUST support the following proof types. Each type corresponds to
 | ------- | -------------- | ----------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | 0x01    | Compliance     | compliance        | jurisdiction_id, provider_set_hash, config_hash, timestamp, meets_threshold            | signals, weights, weight_sum, provider_ids, num_providers      |
 | 0x02    | Risk Score     | risk_score        | proof_type (threshold/range), direction, bound_lower, bound_upper, result, config_hash | signals, weights, weight_sum                                   |
-| 0x03    | Pattern        | anti_structuring  | analysis_type, result, reporting_threshold, time_window, tx_set_hash                   | amounts, timestamps, num_transactions                          |
-| 0x04    | Attestation    | tier_verification | provider_id, credential_type, is_valid, merkle_root, current_timestamp                 | credential_hash, subject, attribute, expiry, merkle_proof      |
+| 0x03    | Pattern        | pattern           | analysis_type, result, reporting_threshold, time_window, tx_set_hash                   | amounts, timestamps, num_transactions                          |
+| 0x04    | Attestation    | attestation       | provider_id, credential_type, is_valid, merkle_root, current_timestamp                 | credential_hash, subject, attribute, expiry, merkle_proof      |
 | 0x05    | Membership     | membership        | merkle_root, set_id, timestamp, is_member                                              | element, merkle_index, merkle_path                             |
 | 0x06    | Non-membership | non_membership    | merkle_root, set_id, timestamp, is_non_member                                          | element, low_leaf, high_leaf, low/high indices, low/high paths |
 

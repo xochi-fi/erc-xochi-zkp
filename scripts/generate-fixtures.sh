@@ -93,8 +93,8 @@ _contract_name() {
     case "$1" in
         compliance)        echo "ComplianceVerifier" ;;
         risk_score)        echo "RiskScoreVerifier" ;;
-        anti_structuring)  echo "AntiStructuringVerifier" ;;
-        tier_verification) echo "TierVerificationVerifier" ;;
+        pattern)           echo "PatternVerifier" ;;
+        attestation)       echo "AttestationVerifier" ;;
         membership)        echo "MembershipVerifier" ;;
         non_membership)    echo "NonMembershipVerifier" ;;
         *)                 echo "HonkVerifier" ;;

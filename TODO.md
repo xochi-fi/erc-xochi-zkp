@@ -3,7 +3,7 @@
 ## Current Status
 
 - 160/160 Solidity tests pass (49 verifier + 96 oracle + 15 integration)
-- 41/41 Noir circuit tests pass (6 circuits: 8+6+5+8+8+6)
+- 52/52 Noir circuit tests pass (7 packages: shared 11, compliance 6, risk_score 8, pattern 8, attestation 6, membership 5, non_membership 8)
 - 16/16 xochi e2e tests pass (TS + anvil, all 6 proof types + runtime proving)
 - 3/3 TS consumer SDK tests pass (noir_js -> bb.js -> anvil -> on-chain verify)
 - 7/7 client SDK tests pass (XochiProver + encoding)
@@ -14,87 +14,130 @@
 - xochi integration: shared oracle ABI, worker on-chain verification, useCompliance hook, real ZK proving
 - Client SDK: `@xochi/sdk` in ../xochi-sdk (XochiProver, typed input builders, 3 circuit loaders)
 
-## Completed Security Fixes
+## Completed
 
-### Circuit fixes
+<details>
+<summary>Security fixes (circuits + Solidity)</summary>
 
-- [x] Non-membership u64 truncation:range checks enforcing values fit in u64 before comparison
-- [x] Risk score overflow:MAX_WEIGHT (10000) constraint preventing u32 overflow
-- [x] Risk score weight_sum validation:circuit asserts computed_weight_sum == weight_sum
-- [x] Provider set hash array size:assertion enforcing N <= MAX_PROVIDERS
-- [x] Zero-value provider ambiguity:active providers require non-zero IDs
-- [x] Anti-structuring floor overflow:MAX_REPORTING_THRESHOLD guard
-- [x] Pedersen security audit:homomorphic properties documented, no circuit exploits them
+- Non-membership u64 truncation range checks
+- Risk score overflow (MAX_WEIGHT constraint), weight_sum validation
+- Provider set hash array size assertion, zero-value provider ambiguity guard
+- Pattern floor overflow (MAX_REPORTING_THRESHOLD guard)
+- Pedersen homomorphic properties documented (no circuit exploits them)
+- IUltraVerifier view mismatch fixed (verify() now view)
+- Public input validation for all 6 proof types
+- TOCTOU elimination (verifier address resolved once)
+- Proof hash keyed on (proof, proofType) for cross-type collision prevention
+- Public input alignment check (rejects length % 32 != 0)
+- Merkle root registry for MEMBERSHIP/NON_MEMBERSHIP/ATTESTATION
+- Reporting threshold registry for PATTERN
+- Config revocation with CannotRevokeCurrentConfig guard
+- Proof replay protection (\_usedProofs mapping)
+- Attestation history pagination
+- Ownership transfer 48-hour timeout on both contracts
+</details>
 
-### Solidity fixes
+<details>
+<summary>Test coverage</summary>
 
-- [x] IUltraVerifier view mismatch:verify() now view, cascaded through all interfaces
-- [x] Public input validation for all 6 proof types (was only COMPLIANCE + RISK_SCORE)
-- [x] TOCTOU elimination:verifier address resolved once, used for both verify and record
-- [x] Proof hash keyed on (proof, proofType):prevents cross-type collisions
-- [x] Public input alignment check:rejects inputs where length % 32 != 0
-- [x] Merkle root registry:MEMBERSHIP/NON_MEMBERSHIP/ATTESTATION validate against registered roots
-- [x] Reporting threshold registry:PATTERN validates against registered thresholds
-- [x] Config revocation:revokeConfig() with CannotRevokeCurrentConfig guard
-- [x] Proof replay protection:\_usedProofs mapping, ProofAlreadyUsed error
-- [x] Attestation history pagination:getAttestationHistoryPaginated()
-- [x] Ownership transfer timeout:48-hour deadline on both contracts
+- Proof replay, jurisdiction mismatch, providerSetHash mismatch
+- Unaligned public inputs rejection
+- Merkle root + reporting threshold validation
+- Cross-type proof replay allowed (different hash)
+- TTL boundary precision, config revocation
+- View verifier prevents reentrancy (TOCTOU test)
+- Fuzz: expired attestation, replay, attestation fields, revoked config, encoding round trips
+- Integration tests with real proofs for all 6 circuits
+- Circuit main() tests for all 6 circuits
+</details>
 
-### Tests added
+<details>
+<summary>Infrastructure + integrations</summary>
 
-- [x] Proof replay, jurisdiction mismatch, providerSetHash mismatch
-- [x] Unaligned public inputs rejection
-- [x] Merkle root validation (MEMBERSHIP, NON_MEMBERSHIP, ATTESTATION)
-- [x] Reporting threshold validation (PATTERN)
-- [x] Cross-type proof replay allowed (different proofType = different hash)
-- [x] TTL boundary precision (valid at exact expiry, invalid 1s after)
-- [x] Config revocation (blocks submission, revert not owner, cannot revoke current)
-- [x] View verifier prevents reentrancy (TOCTOU test)
-- [x] Fuzz: expired attestation never valid, replay always reverts, attestation fields consistent
-- [x] Fuzz: revoked config blocks submission, all proof types, encoding round trips
-- [x] Integration tests with real compliance proofs
-- [x] Circuit main() tests for all 6 circuits
+- generate-fixtures.sh (compile, prove, verify, generate Solidity verifiers)
+- Makefile with build/test/lint targets, pre-commit hooks (forge fmt check)
+- xochi e2e harness, shared oracle module, worker verification, useCompliance hook
+- Runtime proof generation in xochi e2e (replaced fixture-loading)
+- TS consumer SDK test, client SDK repo (@xochi/sdk)
+</details>
 
-### Infrastructure
+<details>
+<summary>Code quality refactor (2026-04-08)</summary>
 
-- [x] generate-fixtures.sh:compiles, proves, verifies, generates Solidity verifiers
-- [x] Real proof fixtures for compliance and risk_score
-- [x] Regenerated risk_score verifier from updated circuit
+- Extracted shared Noir utilities: verify_weight_sum, weights_to_fields, compute_config_hash, validate_timestamp, compute_tx_set_hash
+- Created circuits/shared/src/validation.nr module
+- Refactored 5 circuits to use shared functions (~60 lines deduplication)
+- Expanded comments: Merkle bit encoding, two-round hashing rationale, truncation attack explanation
+- Extracted Solidity Ownable2Step + Pausable abstract contracts (~50 lines deduplication)
+- Refactored Oracle + Verifier to inherit shared base contracts
+</details>
 
-## Short-term
+## Next up
 
-- [ ] Add CI workflow (GitHub Actions: `forge test` + `nargo test`)
-- [x] Add `Makefile` with build/test/lint targets
-- [x] Add pre-commit hooks (forge fmt check)
-- [x] Generate proof fixtures for all 6 circuits
-- [x] Integration tests with real proofs for all 6 proof types
+### 1. CI workflow (GitHub Actions)
 
-## Xochi integration (../xochi)
+Two jobs: `solidity` and `circuits`. Both trigger on push/PR to main.
 
-- [x] E2e harness: anvil lifecycle, contract deployment, library linking, proof fixtures
-- [x] Shared oracle module: ABI, types, constants (`@xochi/shared/oracle`)
-- [x] Worker on-chain verification (`checkOnChainCompliance`, DB fallback)
-- [x] Frontend `useCompliance` hook (wagmi `useReadContract`)
-- [x] Replace `STUB_MODE` in xochi `tier-proofs.ts` with real `noir_js` + `bb.js`
-- [x] Runtime proof generation in xochi e2e (replace fixture-loading)
-- [x] TS consumer SDK test in this repo (validates integrator path)
-- [x] Client SDK repo (`../xochi-sdk`): XochiProver, typed input builders, 6 circuits
+**solidity job:**
 
-## Medium-term
+- Install foundry (foundry-rs/foundry-toolchain action)
+- `forge build --sizes` (catch contract size regressions)
+- `forge test -vvv`
+- `forge fmt --check`
+- Cache: `~/.config/.foundry`
 
-- [x] Client SDK (TypeScript): `@xochi/sdk` in `../xochi-sdk` (XochiProver, typed inputs, 3 loaders)
-- [ ] Provider signal mock server for local development
-- [ ] Gas benchmarks for each proof type verification
-- [ ] Formal verification of jurisdiction threshold logic
+**circuits job:**
 
-## Pre-deployment
+- Install nargo via noirup (noir-lang/noirup action or curl)
+- `cd circuits && nargo test --workspace`
+- Cache: `~/.nargo`
+
+Optional: add `sdk` job later when CI has node/npm (low priority, fast locally).
+
+### 2. Testnet deployment (Sepolia + Base Sepolia)
+
+Prerequisite: CI green.
+
+- [ ] Deploy script updates: chain-specific config (RPC URLs, gas settings)
+- [ ] Deploy generated verifiers (6 contracts per chain)
+- [ ] Deploy XochiZKPVerifier, register all 6 per-type verifiers
+- [ ] Deploy XochiZKPOracle with initial config hash
+- [ ] Register initial merkle roots + reporting thresholds
+- [ ] Verify all contracts on Etherscan/Basescan
+- [ ] Smoke test: submit a real compliance proof on testnet
+- [ ] Document deployed addresses in README
+
+### 3. Timelock + multi-sig for admin ops
+
+Prerequisite: testnet deployment validated.
+
+- [ ] TimelockController for admin operations (verifier updates, TTL changes, config updates)
+- [ ] Minimum delay: 24h for verifier updates, 6h for TTL/config
+- [ ] Safe multi-sig as timelock proposer (2-of-3 minimum)
+- [ ] Update Oracle + Verifier ownership to timelock
+- [ ] Test timelock flow end-to-end on testnet
+
+### 4. Gas benchmarks
+
+- [ ] Per-proof-type verification gas (all 6 types, real proofs)
+- [ ] submitCompliance gas breakdown (verify + storage + events)
+- [ ] Batch verification gas scaling curve
+- [ ] Add to CI as regression check (forge snapshot --check)
+
+### 5. Documentation site
+
+- [ ] EIP spec as primary reference
+- [ ] Integration guide (SDK usage, proof generation, on-chain verification)
+- [ ] Circuit architecture diagrams
+- [ ] Deployment guide (testnet + mainnet)
+- [ ] Threat model + security considerations
+
+## Pre-deployment (blocked on testnet validation)
 
 - [ ] External security audit (Solidity + Noir circuits)
-- [ ] Testnet deployment (Sepolia, Base Sepolia)
-- [ ] Documentation site
 - [ ] EIP submission to ethereum/EIPs
-- [ ] Timelock on admin operations (verifier updates, TTL changes)
-- [ ] Multi-sig for oracle ownership
+- [ ] Provider signal mock server for local development
+- [ ] Formal verification of jurisdiction threshold logic
 
 ## Design decisions (documented, not bugs)
 
@@ -105,3 +148,5 @@
 - **Pedersen vs Poseidon2**: Using Pedersen due to Noir API stability. Homomorphic properties not exploitable in current circuit compositions. Migrate when Poseidon2 stabilizes.
 - **TTL boundary inclusive**: checkCompliance uses `<=` for expiresAt. Attestation valid for exactly TTL seconds inclusive.
 - **verifier immutable on Oracle**: XochiZKPVerifier address is immutable. Individual per-type verifiers are upgradeable via setVerifier().
+- **Circuit names match ProofTypes**: Circuit directories (pattern, attestation) match Solidity ProofTypes constants 1:1. Previously `anti_structuring` and `tier_verification`, renamed for ontology alignment.
+- **compliance vs risk_score**: Both use `compute_risk_score()` from shared. Compliance is the primary jurisdiction-aware proof. Risk score is a raw scoring primitive for custom integrations (GT/LT/range, no jurisdiction). Intentional composition, not duplication.

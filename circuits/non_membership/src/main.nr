@@ -30,7 +30,7 @@
 ///   - high_index: Merkle index of high_leaf
 ///   - high_path: Merkle path for high_leaf
 
-use xochi_shared::{compute_merkle_root, hash2};
+use xochi_shared::{compute_merkle_root, hash2, validate_timestamp};
 
 /// Maximum value that can be stored in the sorted Merkle tree.
 /// All elements must fit in u64 for safe ordering comparisons.
@@ -53,12 +53,15 @@ fn main(
     is_non_member: pub bool,          // the result
 ) {
     // 1. Timestamp must be within reasonable bounds
-    assert(timestamp as u64 > 1609459200, "Timestamp before 2021");
-    assert(timestamp as u64 < 1099511627776, "Timestamp unreasonably far future"); // 2^40
+    validate_timestamp(timestamp);
 
     // 2. Range-check: all values must fit in u64 to prevent truncation attacks.
-    //    Without this, an attacker could craft a ~254-bit Field value that
-    //    collides with a different value after u64 truncation.
+    //    The Noir Field is ~254 bits (BN254 scalar). When we cast to u64 for
+    //    ordering (low_leaf as u64 < element as u64), Noir truncates to 64 bits.
+    //    Without this check, an attacker could craft a 254-bit Field that differs
+    //    from a real tree value but produces the same u64 after truncation --
+    //    proving non-membership of a value that IS in the tree.
+    //    This forces all values < 2^64, making truncation a no-op.
     assert(element.lt(MAX_ELEMENT_VALUE + 1), "Element exceeds u64 range");
     assert(low_leaf.lt(MAX_ELEMENT_VALUE + 1), "Low leaf exceeds u64 range");
     assert(high_leaf.lt(MAX_ELEMENT_VALUE + 1), "High leaf exceeds u64 range");

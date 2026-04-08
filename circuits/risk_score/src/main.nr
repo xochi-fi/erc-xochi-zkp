@@ -21,7 +21,7 @@
 ///   - weights: per-provider weights
 ///   - weight_sum: normalization factor
 
-use xochi_shared::{compute_risk_score, hash8};
+use xochi_shared::{compute_risk_score, verify_weight_sum, compute_config_hash};
 
 /// Threshold proof type
 global PROOF_THRESHOLD: u8 = 0x01;
@@ -59,11 +59,7 @@ fn main(
 
     // Verify weight_sum matches actual sum of weights (prevents prover from
     // passing an arbitrary denominator to inflate/deflate the score)
-    let mut computed_weight_sum: u32 = 0;
-    for i in 0..8 {
-        computed_weight_sum += weights[i];
-    }
-    assert(computed_weight_sum == weight_sum, "Weight sum mismatch");
+    verify_weight_sum(weights, weight_sum);
 
     // 2. Compute the risk score
     let score = compute_risk_score(signals, weights, weight_sum);
@@ -85,11 +81,7 @@ fn main(
     }
 
     // 4. Verify config hash
-    let mut weight_fields: [Field; 8] = [0; 8];
-    for i in 0..8 {
-        weight_fields[i] = weights[i] as Field;
-    }
-    let computed_config = hash8(weight_fields);
+    let computed_config = compute_config_hash(weights);
     assert(computed_config == config_hash, "Config hash mismatch");
 }
 
@@ -126,11 +118,7 @@ fn test_main_threshold_gt() {
     let signals = [60, 0, 0, 0, 0, 0, 0, 0];
     let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
 
-    let mut weight_fields: [Field; 8] = [0; 8];
-    for i in 0..8 {
-        weight_fields[i] = weights[i] as Field;
-    }
-    let config = hash8(weight_fields);
+    let config = compute_config_hash(weights);
 
     // score = 6000 > 5000
     main(signals, weights, 100, PROOF_THRESHOLD, DIRECTION_GT, 5000, 0, true, config);
@@ -141,11 +129,7 @@ fn test_main_threshold_lt() {
     let signals = [20, 0, 0, 0, 0, 0, 0, 0];
     let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
 
-    let mut weight_fields: [Field; 8] = [0; 8];
-    for i in 0..8 {
-        weight_fields[i] = weights[i] as Field;
-    }
-    let config = hash8(weight_fields);
+    let config = compute_config_hash(weights);
 
     // score = 2000 < 5000
     main(signals, weights, 100, PROOF_THRESHOLD, DIRECTION_LT, 5000, 0, true, config);
@@ -156,11 +140,7 @@ fn test_main_range_proof() {
     let signals = [45, 0, 0, 0, 0, 0, 0, 0];
     let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
 
-    let mut weight_fields: [Field; 8] = [0; 8];
-    for i in 0..8 {
-        weight_fields[i] = weights[i] as Field;
-    }
-    let config = hash8(weight_fields);
+    let config = compute_config_hash(weights);
 
     // score = 4500, in [4000, 5000]
     main(signals, weights, 100, PROOF_RANGE, 0, 4000, 5000, true, config);
@@ -171,11 +151,7 @@ fn test_main_revert_weight_sum_mismatch() {
     let signals = [60, 0, 0, 0, 0, 0, 0, 0];
     let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
 
-    let mut weight_fields: [Field; 8] = [0; 8];
-    for i in 0..8 {
-        weight_fields[i] = weights[i] as Field;
-    }
-    let config = hash8(weight_fields);
+    let config = compute_config_hash(weights);
 
     // Pass weight_sum=1 instead of correct 100, should fail
     main(signals, weights, 1, PROOF_THRESHOLD, DIRECTION_GT, 0, 0, true, config);
@@ -186,11 +162,7 @@ fn test_main_range_proof_out_of_bounds() {
     let signals = [60, 0, 0, 0, 0, 0, 0, 0];
     let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
 
-    let mut weight_fields: [Field; 8] = [0; 8];
-    for i in 0..8 {
-        weight_fields[i] = weights[i] as Field;
-    }
-    let config = hash8(weight_fields);
+    let config = compute_config_hash(weights);
 
     // score = 6000, NOT in [4000, 5000]
     main(signals, weights, 100, PROOF_RANGE, 0, 4000, 5000, false, config);

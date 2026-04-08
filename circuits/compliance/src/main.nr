@@ -24,7 +24,9 @@ use xochi_shared::{
     compute_risk_score,
     get_high_threshold,
     compute_provider_set_hash,
-    hash8,
+    verify_weight_sum,
+    compute_config_hash,
+    validate_timestamp,
 };
 
 fn main(
@@ -67,11 +69,7 @@ fn main(
     }
 
     // 4. Verify weight_sum matches active weights
-    let mut computed_weight_sum: u32 = 0;
-    for i in 0..8 {
-        computed_weight_sum += weights[i];
-    }
-    assert(computed_weight_sum == weight_sum, "Weight sum mismatch");
+    verify_weight_sum(weights, weight_sum);
 
     // 5. Compute the risk score
     let score = compute_risk_score(signals, weights, weight_sum);
@@ -88,16 +86,11 @@ fn main(
     assert(computed_provider_hash == provider_set_hash, "Provider set hash mismatch");
 
     // 9. Verify config hash commits to the weight configuration
-    let mut weight_fields: [Field; 8] = [0; 8];
-    for i in 0..8 {
-        weight_fields[i] = weights[i] as Field;
-    }
-    let computed_config_hash = hash8(weight_fields);
+    let computed_config_hash = compute_config_hash(weights);
     assert(computed_config_hash == config_hash, "Config hash mismatch");
 
     // 10. Timestamp must be within reasonable bounds
-    assert(timestamp as u64 > 1609459200, "Timestamp before 2021");
-    assert(timestamp as u64 < 1099511627776, "Timestamp unreasonably far future"); // 2^40
+    validate_timestamp(timestamp);
 }
 
 // ---------------------------------------------------------------------------
@@ -153,11 +146,7 @@ fn test_main_compliant_single_provider() {
 
     // Compute expected public inputs
     let provider_set_hash = compute_provider_set_hash(provider_ids, weights);
-    let mut weight_fields: [Field; 8] = [0; 8];
-    for i in 0..8 {
-        weight_fields[i] = weights[i] as Field;
-    }
-    let config_hash = hash8(weight_fields);
+    let config_hash = compute_config_hash(weights);
 
     // score = 20*100*100/100 = 2000 bps, EU threshold = 7100 -> meets
     main(
@@ -179,11 +168,7 @@ fn test_main_non_compliant_high_risk() {
     let provider_ids: [Field; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
 
     let provider_set_hash = compute_provider_set_hash(provider_ids, weights);
-    let mut weight_fields: [Field; 8] = [0; 8];
-    for i in 0..8 {
-        weight_fields[i] = weights[i] as Field;
-    }
-    let config_hash = hash8(weight_fields);
+    let config_hash = compute_config_hash(weights);
 
     // score = 8000 bps, EU threshold = 7100 -> does NOT meet
     main(
@@ -205,11 +190,7 @@ fn test_main_multi_provider_all_jurisdictions() {
     let provider_ids: [Field; 8] = [10, 20, 30, 0, 0, 0, 0, 0];
 
     let provider_set_hash = compute_provider_set_hash(provider_ids, weights);
-    let mut weight_fields: [Field; 8] = [0; 8];
-    for i in 0..8 {
-        weight_fields[i] = weights[i] as Field;
-    }
-    let config_hash = hash8(weight_fields);
+    let config_hash = compute_config_hash(weights);
 
     // weighted_sum = 30*50 + 40*30 + 20*20 = 1500+1200+400 = 3100
     // score = 3100*100/100 = 3100 bps (31%), below all thresholds

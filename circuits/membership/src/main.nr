@@ -21,7 +21,7 @@
 ///   - merkle_index: position in the tree
 ///   - merkle_path: sibling hashes along the path to root
 
-use xochi_shared::{compute_merkle_root, hash2};
+use xochi_shared::{compute_merkle_root, hash2, validate_timestamp};
 
 fn main(
     // --- Private ---
@@ -47,8 +47,7 @@ fn main(
     assert(membership_valid == is_member, "Membership result mismatch");
 
     // 4. Timestamp must be within reasonable bounds
-    assert(timestamp as u64 > 1609459200, "Timestamp before 2021");
-    assert(timestamp as u64 < 1099511627776, "Timestamp unreasonably far future"); // 2^40
+    validate_timestamp(timestamp);
 }
 
 // ---------------------------------------------------------------------------

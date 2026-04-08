@@ -42,8 +42,8 @@ contract Deploy is Script {
         // 3. Deploy generated UltraHonk verifiers and register them
         _deployAndRegister(verifier, ProofTypes.COMPLIANCE, "ComplianceVerifier");
         _deployAndRegister(verifier, ProofTypes.RISK_SCORE, "RiskScoreVerifier");
-        _deployAndRegister(verifier, ProofTypes.PATTERN, "AntiStructuringVerifier");
-        _deployAndRegister(verifier, ProofTypes.ATTESTATION, "TierVerificationVerifier");
+        _deployAndRegister(verifier, ProofTypes.PATTERN, "PatternVerifier");
+        _deployAndRegister(verifier, ProofTypes.ATTESTATION, "AttestationVerifier");
         _deployAndRegister(verifier, ProofTypes.MEMBERSHIP, "MembershipVerifier");
         _deployAndRegister(verifier, ProofTypes.NON_MEMBERSHIP, "NonMembershipVerifier");
 
@@ -72,11 +72,11 @@ contract Deploy is Script {
         if (keccak256(bytes(contractName)) == keccak256("RiskScoreVerifier")) {
             return "risk_score_verifier.sol";
         }
-        if (keccak256(bytes(contractName)) == keccak256("AntiStructuringVerifier")) {
-            return "anti_structuring_verifier.sol";
+        if (keccak256(bytes(contractName)) == keccak256("PatternVerifier")) {
+            return "pattern_verifier.sol";
         }
-        if (keccak256(bytes(contractName)) == keccak256("TierVerificationVerifier")) {
-            return "tier_verification_verifier.sol";
+        if (keccak256(bytes(contractName)) == keccak256("AttestationVerifier")) {
+            return "attestation_verifier.sol";
         }
         if (keccak256(bytes(contractName)) == keccak256("MembershipVerifier")) {
             return "membership_verifier.sol";

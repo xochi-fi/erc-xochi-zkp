@@ -6,25 +6,15 @@ import {IXochiZKPVerifier} from "./interfaces/IXochiZKPVerifier.sol";
 import {IUltraVerifier} from "./interfaces/IUltraVerifier.sol";
 import {ProofTypes} from "./libraries/ProofTypes.sol";
 import {JurisdictionConfig} from "./libraries/JurisdictionConfig.sol";
+import {Ownable2Step} from "./libraries/Ownable2Step.sol";
+import {Pausable} from "./libraries/Pausable.sol";
 
 /// @title XochiZKPOracle -- Reference implementation of the Xochi ZKP compliance oracle
 /// @notice Records compliance attestations backed by verified ZK proofs and supports
 ///         retroactive proof-of-innocence lookups
-contract XochiZKPOracle is IXochiZKPOracle {
+contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
     /// @notice The verifier contract used to validate proofs
     IXochiZKPVerifier public immutable verifier;
-
-    /// @notice Owner who can update provider config and TTL
-    address public owner;
-
-    /// @notice Pending owner for two-step transfer
-    address public pendingOwner;
-
-    /// @notice Whether the contract is paused
-    bool public paused;
-
-    /// @notice Deadline for pending owner to accept (48 hours from initiation)
-    uint256 internal _ownershipTransferDeadline;
 
     /// @notice Hash of the current provider weight configuration
     bytes32 internal _providerConfigHash;
@@ -61,9 +51,6 @@ contract XochiZKPOracle is IXochiZKPOracle {
     ///      by ensuring the reporting_threshold in a PATTERN proof matches a registered value.
     mapping(bytes32 threshold => bool valid) internal _validReportingThresholds;
 
-    error Unauthorized();
-    error NotPendingOwner();
-    error ZeroAddress();
     error ProofVerificationFailed();
     error ProofAlreadyUsed(bytes32 proofHash);
     error InvalidTTL();
@@ -73,33 +60,14 @@ contract XochiZKPOracle is IXochiZKPOracle {
     error InvalidMerkleRoot(bytes32 merkleRoot);
     error InvalidReportingThreshold(bytes32 threshold);
     error CannotRevokeCurrentConfig();
-    error OwnershipTransferExpired();
     error ProofResultNegative();
-    error ContractPaused();
-    error ContractNotPaused();
     error ConfigHistoryFull();
     error ConfigAlreadyCurrent();
     error AlreadyRegistered();
     error NotRegistered();
 
-    event OwnershipTransferStarted(address indexed previousOwner, address indexed newOwner);
-    event OwnershipTransferred(address indexed previousOwner, address indexed newOwner);
-    event OwnershipTransferCancelled(address indexed cancelledOwner);
-    event Paused(address account);
-    event Unpaused(address account);
-
     /// @notice Maximum number of entries in the config history array
     uint256 public constant MAX_CONFIG_HISTORY = 256;
-
-    modifier onlyOwner() {
-        if (msg.sender != owner) revert Unauthorized();
-        _;
-    }
-
-    modifier whenNotPaused() {
-        if (paused) revert ContractPaused();
-        _;
-    }
 
     /// @param _verifier The XochiZKPVerifier contract address
     /// @param initialOwner The initial owner address
@@ -341,39 +309,17 @@ contract XochiZKPOracle is IXochiZKPOracle {
     }
 
     /// @notice Pause the contract, blocking new submissions
-    function pause() external onlyOwner {
+    function pause() external override onlyOwner {
         if (paused) revert ContractPaused();
         paused = true;
         emit Paused(msg.sender);
     }
 
     /// @notice Unpause the contract, resuming submissions
-    function unpause() external onlyOwner {
+    function unpause() external override onlyOwner {
         if (!paused) revert ContractNotPaused();
         paused = false;
         emit Unpaused(msg.sender);
-    }
-
-    /// @notice Begin two-step ownership transfer (48 hour acceptance window)
-    function transferOwnership(address newOwner) external onlyOwner {
-        if (newOwner == address(0)) revert ZeroAddress();
-        if (pendingOwner != address(0)) {
-            emit OwnershipTransferCancelled(pendingOwner);
-        }
-        pendingOwner = newOwner;
-        _ownershipTransferDeadline = block.timestamp + 48 hours;
-        emit OwnershipTransferStarted(owner, newOwner);
-    }
-
-    /// @notice Accept ownership transfer (must be within 48 hours of initiation)
-    function acceptOwnership() external {
-        if (msg.sender != pendingOwner) revert NotPendingOwner();
-        if (block.timestamp > _ownershipTransferDeadline) revert OwnershipTransferExpired();
-        address old = owner;
-        owner = msg.sender;
-        pendingOwner = address(0);
-        _ownershipTransferDeadline = 0;
-        emit OwnershipTransferred(old, msg.sender);
     }
 
     // -------------------------------------------------------------------------
@@ -460,7 +406,7 @@ contract XochiZKPOracle is IXochiZKPOracle {
         if (!_validConfigs[proofConfigHash]) revert InvalidConfigHash(proofConfigHash);
     }
 
-    /// @dev Validate PATTERN (anti_structuring) public inputs.
+    /// @dev Validate PATTERN public inputs.
     ///      Ensures result is positive, reporting_threshold is registered, and tx_set_hash is non-zero.
     function _validatePatternInputs(bytes calldata publicInputs) internal view {
         // PATTERN public inputs layout (each 32 bytes):
@@ -479,7 +425,7 @@ contract XochiZKPOracle is IXochiZKPOracle {
         if (txSetHash == bytes32(0)) revert PublicInputMismatch();
     }
 
-    /// @dev Validate ATTESTATION (tier_verification) public inputs.
+    /// @dev Validate ATTESTATION public inputs.
     ///      Ensures is_valid is true and merkle_root is a registered root.
     function _validateAttestationInputs(bytes calldata publicInputs) internal view {
         // ATTESTATION public inputs layout (each 32 bytes):

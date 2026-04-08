@@ -8,8 +8,8 @@ library ProofTypes {
     /// @notice Proof type identifiers (one per circuit)
     uint8 internal constant COMPLIANCE = 0x01; // compliance circuit
     uint8 internal constant RISK_SCORE = 0x02; // risk_score circuit
-    uint8 internal constant PATTERN = 0x03; // anti_structuring circuit
-    uint8 internal constant ATTESTATION = 0x04; // tier_verification circuit
+    uint8 internal constant PATTERN = 0x03; // pattern circuit
+    uint8 internal constant ATTESTATION = 0x04; // attestation circuit
     uint8 internal constant MEMBERSHIP = 0x05; // membership circuit
     uint8 internal constant NON_MEMBERSHIP = 0x06; // non_membership circuit
 
@@ -25,9 +25,9 @@ library ProofTypes {
         if (proofType == COMPLIANCE) return 5;
         // risk_score: proof_type, direction, bound_lower, bound_upper, result, config_hash
         if (proofType == RISK_SCORE) return 6;
-        // anti_structuring: analysis_type, result, reporting_threshold, time_window, tx_set_hash
+        // pattern: analysis_type, result, reporting_threshold, time_window, tx_set_hash
         if (proofType == PATTERN) return 5;
-        // tier_verification: provider_id, credential_type, is_valid, merkle_root, current_timestamp
+        // attestation: provider_id, credential_type, is_valid, merkle_root, current_timestamp
         if (proofType == ATTESTATION) return 5;
         // membership: merkle_root, set_id, timestamp, is_member
         if (proofType == MEMBERSHIP) return 4;

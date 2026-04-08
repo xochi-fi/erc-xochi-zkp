@@ -2,16 +2,22 @@
 
 ## Current Status
 
-- 109/109 Solidity tests pass (forge test)
-- 36/36 Noir circuit tests pass (nargo test, 7 projects)
+- 160/160 Solidity tests pass (49 verifier + 96 oracle + 15 integration)
+- 41/41 Noir circuit tests pass (6 circuits: 8+6+5+8+8+6)
+- 16/16 xochi e2e tests pass (TS + anvil, all 6 proof types + runtime proving)
+- 3/3 TS consumer SDK tests pass (noir_js -> bb.js -> anvil -> on-chain verify)
+- 7/7 client SDK tests pass (XochiProver + encoding)
 - EIP draft aligned with implementation
 - Tooling: nargo 1.0.0-beta.19, forge 1.5.1, bb 4.0.0-nightly.20260120
 - Gas snapshot captured (.gas-snapshot)
-- Real proof fixtures for compliance + risk_score circuits
+- Real proof fixtures for all 6 circuits
+- xochi integration: shared oracle ABI, worker on-chain verification, useCompliance hook, real ZK proving
+- Client SDK: `@xochi/sdk` in ../xochi-sdk (XochiProver, typed input builders, 3 circuit loaders)
 
 ## Completed Security Fixes
 
 ### Circuit fixes
+
 - [x] Non-membership u64 truncation:range checks enforcing values fit in u64 before comparison
 - [x] Risk score overflow:MAX_WEIGHT (10000) constraint preventing u32 overflow
 - [x] Risk score weight_sum validation:circuit asserts computed_weight_sum == weight_sum
@@ -21,6 +27,7 @@
 - [x] Pedersen security audit:homomorphic properties documented, no circuit exploits them
 
 ### Solidity fixes
+
 - [x] IUltraVerifier view mismatch:verify() now view, cascaded through all interfaces
 - [x] Public input validation for all 6 proof types (was only COMPLIANCE + RISK_SCORE)
 - [x] TOCTOU elimination:verifier address resolved once, used for both verify and record
@@ -29,11 +36,12 @@
 - [x] Merkle root registry:MEMBERSHIP/NON_MEMBERSHIP/ATTESTATION validate against registered roots
 - [x] Reporting threshold registry:PATTERN validates against registered thresholds
 - [x] Config revocation:revokeConfig() with CannotRevokeCurrentConfig guard
-- [x] Proof replay protection:_usedProofs mapping, ProofAlreadyUsed error
+- [x] Proof replay protection:\_usedProofs mapping, ProofAlreadyUsed error
 - [x] Attestation history pagination:getAttestationHistoryPaginated()
 - [x] Ownership transfer timeout:48-hour deadline on both contracts
 
 ### Tests added
+
 - [x] Proof replay, jurisdiction mismatch, providerSetHash mismatch
 - [x] Unaligned public inputs rejection
 - [x] Merkle root validation (MEMBERSHIP, NON_MEMBERSHIP, ATTESTATION)
@@ -48,6 +56,7 @@
 - [x] Circuit main() tests for all 6 circuits
 
 ### Infrastructure
+
 - [x] generate-fixtures.sh:compiles, proves, verifies, generates Solidity verifiers
 - [x] Real proof fixtures for compliance and risk_score
 - [x] Regenerated risk_score verifier from updated circuit
@@ -55,14 +64,25 @@
 ## Short-term
 
 - [ ] Add CI workflow (GitHub Actions: `forge test` + `nargo test`)
-- [ ] Add `Makefile` with build/test/lint targets
-- [ ] Add pre-commit hooks (forge fmt check)
-- [ ] Generate proof fixtures for remaining 4 circuits (anti_structuring, tier_verification, membership, non_membership)
-- [ ] Integration tests with real proofs for all 6 proof types
+- [x] Add `Makefile` with build/test/lint targets
+- [x] Add pre-commit hooks (forge fmt check)
+- [x] Generate proof fixtures for all 6 circuits
+- [x] Integration tests with real proofs for all 6 proof types
+
+## Xochi integration (../xochi)
+
+- [x] E2e harness: anvil lifecycle, contract deployment, library linking, proof fixtures
+- [x] Shared oracle module: ABI, types, constants (`@xochi/shared/oracle`)
+- [x] Worker on-chain verification (`checkOnChainCompliance`, DB fallback)
+- [x] Frontend `useCompliance` hook (wagmi `useReadContract`)
+- [x] Replace `STUB_MODE` in xochi `tier-proofs.ts` with real `noir_js` + `bb.js`
+- [x] Runtime proof generation in xochi e2e (replace fixture-loading)
+- [x] TS consumer SDK test in this repo (validates integrator path)
+- [x] Client SDK repo (`../xochi-sdk`): XochiProver, typed input builders, 6 circuits
 
 ## Medium-term
 
-- [ ] Client SDK (TypeScript): `@noir-lang/noir_js` + `@aztec/bb.js` wrapper
+- [x] Client SDK (TypeScript): `@xochi/sdk` in `../xochi-sdk` (XochiProver, typed inputs, 3 loaders)
 - [ ] Provider signal mock server for local development
 - [ ] Gas benchmarks for each proof type verification
 - [ ] Formal verification of jurisdiction threshold logic

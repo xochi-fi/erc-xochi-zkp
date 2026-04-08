@@ -11,6 +11,10 @@ circuits/shared/target/
 lib/
 node_modules/
 
+# TypeScript
+dist/
+*.tsbuildinfo
+
 # Env
 .env
 .env.*

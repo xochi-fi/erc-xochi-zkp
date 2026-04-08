@@ -103,8 +103,11 @@ jobs:
       - name: Compile circuits
         run: |
           export PATH="$HOME/.nargo/bin:$PATH"
-          cd circuits && nargo compile --workspace 2>&1
-          ls -la compliance/target/ risk_score/target/ membership/target/ non_membership/target/ 2>&1 || true
+          for circuit in compliance risk_score pattern attestation membership non_membership; do
+            echo "==> Compiling $circuit"
+            cd "$GITHUB_WORKSPACE/circuits/$circuit" && nargo compile
+          done
+          ls circuits/compliance/target/compliance.json
 
       - name: Build contracts
         run: forge build

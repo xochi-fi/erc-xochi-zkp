@@ -10,14 +10,14 @@ This is distinct from view keys (Railgun, Panther) where you trade privately and
 
 ## Proof types
 
-| Type           | ID   | Assertion                         | What stays hidden   | Circuit           |
-| -------------- | ---- | --------------------------------- | ------------------- | ----------------- |
-| Compliance     | 0x01 | "Risk score below threshold"      | Signals, score      | compliance        |
-| Risk Score     | 0x02 | "Score > X" or "Score in [X,Y]"   | Exact score         | risk_score        |
-| Pattern        | 0x03 | "No structuring detected"         | Transaction history | anti_structuring  |
-| Attestation    | 0x04 | "Valid credential exists"         | Credential details  | tier_verification |
-| Membership     | 0x05 | "Address in authorized set S"     | Which element       | membership        |
-| Non-membership | 0x06 | "Address NOT in sanctions list S" | List contents       | non_membership    |
+| Type           | ID   | Assertion                         | What stays hidden   | Circuit        |
+| -------------- | ---- | --------------------------------- | ------------------- | -------------- |
+| Compliance     | 0x01 | "Risk score below threshold"      | Signals, score      | compliance     |
+| Risk Score     | 0x02 | "Score > X" or "Score in [X,Y]"   | Exact score         | risk_score     |
+| Pattern        | 0x03 | "No structuring detected"         | Transaction history | pattern        |
+| Attestation    | 0x04 | "Valid credential exists"         | Credential details  | attestation    |
+| Membership     | 0x05 | "Address in authorized set S"     | Which element       | membership     |
+| Non-membership | 0x06 | "Address NOT in sanctions list S" | List contents       | non_membership |
 
 ## How it works
 
@@ -87,15 +87,21 @@ Each of the 6 proof types has its own Noir circuit and generates a separate Ultr
   script/
     Deploy.s.sol                  # Deployment script
   circuits/
+    Nargo.toml                    # Workspace config (nargo compile/test --workspace)
     shared/                       # Shared Noir library
-      src/lib.nr                  # Types, hashing, Merkle, risk score computation
+      src/lib.nr                  # Re-exports all modules
+      src/hash.nr                 # Pedersen hash wrappers (hash2..hash32)
+      src/merkle.nr               # Merkle root computation
+      src/risk.nr                 # Risk score + jurisdiction thresholds
+      src/providers.nr             # Provider set commitment
+      src/constants.nr             # Shared constants (jurisdictions, depths, limits)
     compliance/                   # Compliance proof circuit (0x01)
       src/main.nr                 # Risk score below jurisdiction threshold
     risk_score/                   # Risk score circuit (0x02)
       src/main.nr                 # Threshold and range proofs
-    anti_structuring/             # Pattern detection circuit (0x03)
+    pattern/                      # Pattern detection circuit (0x03)
       src/main.nr                 # Structuring, velocity, round-amount analysis
-    tier_verification/            # Attestation circuit (0x04)
+    attestation/                  # Attestation circuit (0x04)
       src/main.nr                 # KYC tier, accreditation proofs
     membership/                   # Membership proof circuit (0x05)
       src/main.nr                 # Merkle inclusion proof for authorized sets
@@ -147,10 +153,14 @@ make help
 ### Circuit development
 
 ```bash
-# Compile a circuit
-cd circuits/compliance && nargo compile
+# Compile all circuits (workspace)
+cd circuits && nargo compile --workspace
 
-# Run circuit tests
+# Run all circuit tests (workspace)
+cd circuits && nargo test --workspace
+
+# Compile/test a single circuit
+cd circuits/compliance && nargo compile
 cd circuits/compliance && nargo test
 
 # Generate witness (requires Prover.toml with inputs)

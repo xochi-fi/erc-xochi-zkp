@@ -16,7 +16,7 @@ ERC Xochi ZKP: a standard for zero-knowledge compliance proofs on Ethereum. User
 ```bash
 make build                     # compile contracts + circuits
 make test                      # run Solidity tests (160)
-make test-noir                 # run Noir circuit tests (41)
+make test-noir                 # run Noir circuit tests (workspace)
 make test-sdk                  # run TS consumer SDK tests (3)
 make test-all                  # run all tests
 make fmt                       # format Solidity
@@ -26,10 +26,10 @@ make fixtures                  # regenerate proof fixtures + verifiers
 make snapshot                  # capture gas baseline
 make help                      # list all targets
 
-# circuit development
-cd circuits/<name> && nargo compile    # compile a circuit
-cd circuits/<name> && nargo test       # run circuit tests
-cd circuits/<name> && nargo execute    # generate witness
+# circuit development (workspace)
+cd circuits && nargo compile --workspace   # compile all circuits
+cd circuits && nargo test --workspace      # run all circuit tests
+cd circuits/<name> && nargo test           # run a single circuit's tests
 ```
 
 ## Contract Structure
@@ -46,25 +46,34 @@ cd circuits/<name> && nargo execute    # generate witness
 
 ## Circuit Structure
 
-Each proof type is a separate Noir project under circuits/:
-- `circuits/shared/`:shared library (types, hashing, Merkle, risk score)
-- `circuits/compliance/`:main compliance proof
-- `circuits/risk_score/`:risk score computation (validates weight_sum matches actual sum)
-- `circuits/anti_structuring/`:structuring detection
-- `circuits/tier_verification/`:trust tier verification
-- `circuits/membership/`:Merkle inclusion proof
-- `circuits/non_membership/`:sorted Merkle adjacency proof (u64 range-checked)
+Nargo workspace at `circuits/Nargo.toml`. Each proof type is a separate Noir project:
+- `circuits/shared/`: shared library split into modules (hash, merkle, risk, providers, constants)
+- `circuits/compliance/`: main compliance proof (jurisdiction-aware risk score check)
+- `circuits/risk_score/`: standalone risk score proof (threshold GT/LT, range)
+- `circuits/pattern/`: pattern detection (anti-structuring, velocity, round amounts)
+- `circuits/attestation/`: credential verification (KYC tier, accreditation)
+- `circuits/membership/`: Merkle inclusion proof
+- `circuits/non_membership/`: sorted Merkle adjacency proof (u64 range-checked)
+
+Note: `compliance` and `risk_score` both use `compute_risk_score()` from shared but serve
+different purposes. Compliance is the primary proof (jurisdiction-aware, provider-committed,
+timestamp-bound). Risk score is a raw scoring primitive for custom integrations (no jurisdiction,
+supports GT/LT/range). This is intentional composition, not duplication.
 
 ## Proof Types
 
-| ID   | Type           | Circuit            | Public Inputs |
-|------|----------------|--------------------|---------------|
-| 0x01 | COMPLIANCE     | compliance         | 5             |
-| 0x02 | RISK_SCORE     | risk_score         | 6             |
-| 0x03 | PATTERN        | anti_structuring   | 5             |
-| 0x04 | ATTESTATION    | tier_verification  | 5             |
-| 0x05 | MEMBERSHIP     | membership         | 4             |
-| 0x06 | NON_MEMBERSHIP | non_membership     | 4             |
+Circuit names match Solidity `ProofTypes` constants 1:1. Public input counts below are
+*logical* inputs (what the circuit's `main()` declares as `pub`). The generated UltraHonk
+verifiers see more inputs because Noir flattens arrays into individual field elements.
+
+| ID   | ProofType      | Circuit        | Logical Public Inputs |
+|------|----------------|----------------|-----------------------|
+| 0x01 | COMPLIANCE     | compliance     | 5                     |
+| 0x02 | RISK_SCORE     | risk_score     | 6                     |
+| 0x03 | PATTERN        | pattern        | 5                     |
+| 0x04 | ATTESTATION    | attestation    | 5                     |
+| 0x05 | MEMBERSHIP     | membership     | 4                     |
+| 0x06 | NON_MEMBERSHIP | non_membership | 4                     |
 
 ## Conventions
 
@@ -83,7 +92,7 @@ The Oracle validates public inputs for every proof type via on-chain registries:
 
 - `_validConfigs`:provider config hashes (append-only + revocable, current config cannot be revoked)
 - `_validMerkleRoots`:merkle roots for MEMBERSHIP/NON_MEMBERSHIP/ATTESTATION proofs
-- `_validReportingThresholds`:reporting thresholds for PATTERN (anti-structuring) proofs
+- `_validReportingThresholds`:reporting thresholds for PATTERN proofs
 
 Admin functions: `registerMerkleRoot`, `revokeMerkleRoot`, `registerReportingThreshold`, `revokeReportingThreshold`, `revokeConfig`, `updateProviderConfig`
 

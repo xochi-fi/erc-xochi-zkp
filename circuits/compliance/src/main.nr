@@ -205,3 +205,47 @@ fn test_main_multi_provider_all_jurisdictions() {
         );
     }
 }
+
+#[test]
+fn test_score_at_exact_threshold_boundary() {
+    // score = 71*100*100/100 = 7100 bps, EU threshold = 7100
+    // score < threshold is false, so meets_threshold = false
+    let signals = [71, 0, 0, 0, 0, 0, 0, 0];
+    let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+    let weight_sum: u32 = 100;
+    let provider_ids: [Field; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
+
+    let provider_set_hash = compute_provider_set_hash(provider_ids, weights);
+    let config_hash = compute_config_hash(weights);
+
+    main(
+        signals, weights, weight_sum, provider_ids, 1,
+        0, // EU
+        provider_set_hash,
+        config_hash,
+        1700000000,
+        false,
+    );
+}
+
+#[test]
+fn test_score_just_below_threshold() {
+    // score = 70*100*100/100 = 7000 bps, EU threshold = 7100
+    // score < threshold is true, so meets_threshold = true
+    let signals = [70, 0, 0, 0, 0, 0, 0, 0];
+    let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+    let weight_sum: u32 = 100;
+    let provider_ids: [Field; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
+
+    let provider_set_hash = compute_provider_set_hash(provider_ids, weights);
+    let config_hash = compute_config_hash(weights);
+
+    main(
+        signals, weights, weight_sum, provider_ids, 1,
+        0, // EU
+        provider_set_hash,
+        config_hash,
+        1700000000,
+        true,
+    );
+}

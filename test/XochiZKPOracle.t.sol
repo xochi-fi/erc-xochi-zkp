@@ -1286,6 +1286,90 @@ contract XochiZKPOracleTest is Test {
     }
 
     // -------------------------------------------------------------------------
+    // Fuzz: negative result fields always revert
+    // -------------------------------------------------------------------------
+
+    function testFuzz_submitCompliance_revert_negativeResult_allTypes(uint8 proofType) public {
+        proofType = uint8(bound(proofType, 1, 6));
+        bytes memory publicInputs;
+
+        if (proofType == ProofTypes.COMPLIANCE) {
+            publicInputs = abi.encodePacked(
+                bytes32(uint256(0)),
+                DEFAULT_PROVIDER_SET_HASH,
+                INITIAL_CONFIG,
+                bytes32(uint256(1700000)),
+                bytes32(uint256(0)) // meets_threshold = 0
+            );
+        } else if (proofType == ProofTypes.RISK_SCORE) {
+            publicInputs = abi.encodePacked(
+                bytes32(uint256(1)),
+                bytes32(uint256(1)),
+                bytes32(uint256(5000)),
+                bytes32(uint256(0)),
+                bytes32(uint256(0)),
+                INITIAL_CONFIG // result = 0
+            );
+        } else if (proofType == ProofTypes.PATTERN) {
+            publicInputs = abi.encodePacked(
+                bytes32(uint256(1)),
+                bytes32(uint256(0)), // result = 0
+                bytes32(uint256(10000)),
+                bytes32(uint256(86400)),
+                bytes32(uint256(0xabcd))
+            );
+        } else if (proofType == ProofTypes.ATTESTATION) {
+            bytes32 root = bytes32(uint256(0xbeef));
+            vm.prank(owner);
+            oracle.registerMerkleRoot(root);
+            publicInputs = abi.encodePacked(
+                bytes32(uint256(42)),
+                bytes32(uint256(1)),
+                bytes32(uint256(0)),
+                root,
+                bytes32(uint256(1700000)) // is_valid = 0
+            );
+        } else if (proofType == ProofTypes.MEMBERSHIP) {
+            bytes32 root = bytes32(uint256(0xbeef));
+            vm.prank(owner);
+            oracle.registerMerkleRoot(root);
+            publicInputs = abi.encodePacked(
+                root,
+                bytes32(uint256(1)),
+                bytes32(uint256(1700000)),
+                bytes32(uint256(0)) // is_member = 0
+            );
+        } else {
+            bytes32 root = bytes32(uint256(0xbeef));
+            vm.prank(owner);
+            oracle.registerMerkleRoot(root);
+            publicInputs = abi.encodePacked(
+                root,
+                bytes32(uint256(1)),
+                bytes32(uint256(1700000)),
+                bytes32(uint256(0)) // is_non_member = 0
+            );
+        }
+
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.ProofResultNegative.selector);
+        oracle.submitCompliance(
+            0,
+            proofType,
+            _uniqueProof(),
+            publicInputs,
+            proofType == ProofTypes.COMPLIANCE ? DEFAULT_PROVIDER_SET_HASH : bytes32(0)
+        );
+    }
+
+    function testFuzz_submitCompliance_revert_unknownProofType(uint8 proofType) public {
+        vm.assume(proofType == 0 || proofType > 6);
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ProofTypes.InvalidProofType.selector, proofType));
+        oracle.submitCompliance(0, proofType, _uniqueProof(), _complianceInputs(), DEFAULT_PROVIDER_SET_HASH);
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 

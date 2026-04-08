@@ -167,3 +167,35 @@ fn test_main_range_proof_out_of_bounds() {
     // score = 6000, NOT in [4000, 5000]
     main(signals, weights, 100, PROOF_RANGE, 0, 4000, 5000, false, config);
 }
+
+#[test]
+fn test_main_range_equal_bounds() {
+    let signals = [60, 0, 0, 0, 0, 0, 0, 0];
+    let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+
+    let config = compute_config_hash(weights);
+
+    // score = 6000, range [6000, 6000] -> in range
+    main(signals, weights, 100, PROOF_RANGE, 0, 6000, 6000, true, config);
+}
+
+#[test]
+fn test_main_threshold_at_exact_bound() {
+    let signals = [50, 0, 0, 0, 0, 0, 0, 0];
+    let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+
+    let config = compute_config_hash(weights);
+
+    // score = 5000, GT 5000 -> 5000 > 5000 is false
+    main(signals, weights, 100, PROOF_THRESHOLD, DIRECTION_GT, 5000, 0, false, config);
+}
+
+#[test(should_fail_with = "Invalid direction")]
+fn test_main_revert_invalid_direction() {
+    let signals = [50, 0, 0, 0, 0, 0, 0, 0];
+    let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+
+    let config = compute_config_hash(weights);
+
+    main(signals, weights, 100, PROOF_THRESHOLD, 3, 5000, 0, false, config);
+}

@@ -72,6 +72,19 @@
 - Refactored Oracle + Verifier to inherit shared base contracts
 </details>
 
+## Low-priority test gaps
+
+- [ ] SDK `.todo()` tests for pattern + attestation circuits (blocked on circuit builds in CI)
+- [ ] Exhaustive cross-type proof routing rejection (all 30 mismatch permutations)
+- [ ] Fuzz jurisdiction ID permutations in submitCompliance (4 values, unit tests sufficient)
+- [ ] Fuzz metadata URI strings in updateProviderConfig (long strings, special chars)
+- [ ] Fuzz corrupted proof bytes (various corruption patterns beyond single-byte flip)
+- [ ] Test paginated history with limit=0, fuzz arbitrary offset/limit combinations
+- [ ] Test that old proofs with revoked config are still retrievable via getHistoricalProof
+- [ ] Non-membership: value at exact MAX_ELEMENT_VALUE boundary (2^64-1)
+- [ ] Compliance: multi-provider score that lands exactly 1 bps below threshold
+- [ ] Pattern: threshold=MAX_REPORTING_THRESHOLD boundary, num_transactions=1 edge case
+
 ## Next up
 
 ### 1. CI workflow (GitHub Actions)

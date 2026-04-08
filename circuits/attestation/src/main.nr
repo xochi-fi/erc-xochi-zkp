@@ -189,3 +189,119 @@ fn test_main_expired_credential() {
         current,
     );
 }
+
+#[test]
+fn test_credential_type_zero_invalid() {
+    let provider_id: Field = 42;
+    let subject: Field = 123;
+    let cred_type: u8 = 0;
+    let attribute: Field = 999;
+    let expiry: u64 = 2000000000;
+    let current: u64 = 1700000000;
+
+    let credential_hash = hash_credential(provider_id, subject, cred_type, attribute, expiry);
+
+    let path: [Field; 20] = [0; 20];
+    let root = compute_merkle_root(provider_id, 0, path);
+
+    main(
+        credential_hash,
+        subject,
+        attribute,
+        expiry,
+        0,
+        path,
+        provider_id,
+        cred_type,
+        false,
+        root,
+        current,
+    );
+}
+
+#[test]
+fn test_credential_type_above_max_invalid() {
+    let provider_id: Field = 42;
+    let subject: Field = 123;
+    let cred_type: u8 = 5;
+    let attribute: Field = 999;
+    let expiry: u64 = 2000000000;
+    let current: u64 = 1700000000;
+
+    let credential_hash = hash_credential(provider_id, subject, cred_type, attribute, expiry);
+
+    let path: [Field; 20] = [0; 20];
+    let root = compute_merkle_root(provider_id, 0, path);
+
+    main(
+        credential_hash,
+        subject,
+        attribute,
+        expiry,
+        0,
+        path,
+        provider_id,
+        cred_type,
+        false,
+        root,
+        current,
+    );
+}
+
+#[test]
+fn test_credential_type_boundary_institutional() {
+    let provider_id: Field = 42;
+    let subject: Field = 123;
+    let cred_type: u8 = CREDENTIAL_INSTITUTIONAL;
+    let attribute: Field = 999;
+    let expiry: u64 = 2000000000;
+    let current: u64 = 1700000000;
+
+    let credential_hash = hash_credential(provider_id, subject, cred_type, attribute, expiry);
+
+    let path: [Field; 20] = [0; 20];
+    let root = compute_merkle_root(provider_id, 0, path);
+
+    main(
+        credential_hash,
+        subject,
+        attribute,
+        expiry,
+        0,
+        path,
+        provider_id,
+        cred_type,
+        true,
+        root,
+        current,
+    );
+}
+
+#[test]
+fn test_expiry_exact_boundary() {
+    let provider_id: Field = 42;
+    let subject: Field = 123;
+    let cred_type: u8 = CREDENTIAL_KYC_BASIC;
+    let attribute: Field = 999;
+    let expiry: u64 = 1700000000;
+    let current: u64 = 1700000000;
+
+    let credential_hash = hash_credential(provider_id, subject, cred_type, attribute, expiry);
+
+    let path: [Field; 20] = [0; 20];
+    let root = compute_merkle_root(provider_id, 0, path);
+
+    main(
+        credential_hash,
+        subject,
+        attribute,
+        expiry,
+        0,
+        path,
+        provider_id,
+        cred_type,
+        false,
+        root,
+        current,
+    );
+}

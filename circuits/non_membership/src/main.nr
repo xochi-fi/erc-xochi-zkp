@@ -184,3 +184,63 @@ fn test_main_valid_non_membership() {
         root, set_id, 1700000000, true,
     );
 }
+
+#[test]
+fn test_ordering_fails_element_equals_high_leaf() {
+    let low: u64 = 10;
+    let elem: u64 = 100;
+    let high: u64 = 100;
+    assert(!((low < elem) & (elem < high)));
+}
+
+#[test(should_fail_with = "Non-membership result mismatch")]
+fn test_main_revert_element_equals_low_leaf() {
+    let element: Field = 50;
+    let low_leaf: Field = 50;
+    let high_leaf: Field = 100;
+    let set_id: Field = 1;
+
+    let low_leaf_hash = hash2(low_leaf, set_id);
+    let high_leaf_hash = hash2(high_leaf, set_id);
+
+    let mut low_path: [Field; 20] = [0; 20];
+    low_path[0] = high_leaf_hash;
+
+    let mut high_path: [Field; 20] = [0; 20];
+    high_path[0] = low_leaf_hash;
+
+    let root = compute_merkle_root(low_leaf_hash, 0, low_path);
+
+    main(
+        element, low_leaf, high_leaf,
+        0, low_path,
+        1, high_path,
+        root, set_id, 1700000000, true,
+    );
+}
+
+#[test(should_fail_with = "Non-membership result mismatch")]
+fn test_main_revert_element_equals_high_leaf() {
+    let element: Field = 100;
+    let low_leaf: Field = 50;
+    let high_leaf: Field = 100;
+    let set_id: Field = 1;
+
+    let low_leaf_hash = hash2(low_leaf, set_id);
+    let high_leaf_hash = hash2(high_leaf, set_id);
+
+    let mut low_path: [Field; 20] = [0; 20];
+    low_path[0] = high_leaf_hash;
+
+    let mut high_path: [Field; 20] = [0; 20];
+    high_path[0] = low_leaf_hash;
+
+    let root = compute_merkle_root(low_leaf_hash, 0, low_path);
+
+    main(
+        element, low_leaf, high_leaf,
+        0, low_path,
+        1, high_path,
+        root, set_id, 1700000000, true,
+    );
+}

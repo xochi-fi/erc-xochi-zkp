@@ -237,3 +237,45 @@ fn test_main_structuring_detected() {
 
     main(amounts, timestamps, 4, ANALYSIS_STRUCTURING, false, 10000, 3600, tx_hash);
 }
+
+#[test]
+fn test_structuring_threshold_boundary() {
+    // amounts == threshold, NOT < threshold, so not in suspicious range
+    let amounts: [u64; 16] = [10000, 10000, 10000, 10000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1000, 2000, 3000, 4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    let tx_hash = compute_tx_set_hash(amounts, timestamps);
+
+    main(amounts, timestamps, 4, ANALYSIS_STRUCTURING, true, 10000, 3600, tx_hash);
+}
+
+#[test]
+fn test_velocity_exactly_max() {
+    let amounts: [u64; 16] = [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 0, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 0, 0, 0, 0, 0, 0];
+
+    let tx_hash = compute_tx_set_hash(amounts, timestamps);
+
+    main(amounts, timestamps, 10, ANALYSIS_VELOCITY, true, 10000, 3600, tx_hash);
+}
+
+#[test]
+fn test_velocity_exceeds_max() {
+    let amounts: [u64; 16] = [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 0, 0, 0, 0, 0];
+
+    let tx_hash = compute_tx_set_hash(amounts, timestamps);
+
+    main(amounts, timestamps, 11, ANALYSIS_VELOCITY, false, 10000, 3600, tx_hash);
+}
+
+#[test]
+fn test_round_amounts_all_round() {
+    // 4/4 round amounts -> round_count*100=400, num*80=320, 400 < 320 is false -> not clean
+    let amounts: [u64; 16] = [1000, 2000, 3000, 4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1000, 2000, 3000, 4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    let tx_hash = compute_tx_set_hash(amounts, timestamps);
+
+    main(amounts, timestamps, 4, ANALYSIS_ROUND_AMOUNT, false, 10000, 3600, tx_hash);
+}

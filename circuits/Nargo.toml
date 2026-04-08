@@ -1,0 +1,10 @@
+[workspace]
+members = [
+    "shared",
+    "compliance",
+    "risk_score",
+    "pattern",
+    "attestation",
+    "membership",
+    "non_membership",
+]

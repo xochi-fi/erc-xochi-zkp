@@ -1,5 +1,5 @@
 [package]
-name = "anti_structuring"
+name = "attestation"
 type = "bin"
 authors = ["DROO", "Bloo"]
 compiler_version = ">=1.0.0"

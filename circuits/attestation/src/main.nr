@@ -1,4 +1,4 @@
-/// Tier verification / attestation circuit
+/// Attestation circuit (credential/tier verification)
 ///
 /// Proves that a user holds a valid credential from an authorized provider
 /// without revealing the credential details. Used for:
@@ -75,7 +75,11 @@ fn main(
     assert(computed_valid == is_valid, "Validity result mismatch");
 }
 
-/// Compute the credential hash from its components
+/// Compute the credential hash from its components.
+/// Uses two-round hashing because Noir's Pedersen hash takes fixed-arity inputs.
+/// Round 1: hash(provider_id, subject, credential_type) -- identity fields
+/// Round 2: hash(attribute, expiry) -- attribute fields
+/// Final:   hash(round1, round2) -- combine both halves
 fn hash_credential(
     provider_id: Field,
     subject: Field,

@@ -1,4 +1,4 @@
-/// Anti-structuring detection circuit
+/// Pattern detection circuit (anti-structuring)
 ///
 /// Proves that a set of recent transactions does NOT exhibit structuring
 /// patterns (deliberate splitting of large transactions to avoid reporting
@@ -21,7 +21,7 @@
 ///   - timestamps: transaction timestamps
 ///   - num_transactions: how many are active
 
-use xochi_shared::{MAX_TRANSACTIONS, hash32};
+use xochi_shared::{MAX_TRANSACTIONS, compute_tx_set_hash};
 
 /// Structuring: amounts clustered just below threshold
 global ANALYSIS_STRUCTURING: u8 = 1;
@@ -74,12 +74,7 @@ fn main(
     }
 
     // Verify tx_set_hash
-    let mut hash_inputs: [Field; 32] = [0; 32];
-    for i in 0..16 {
-        hash_inputs[i * 2] = amounts[i] as Field;
-        hash_inputs[i * 2 + 1] = timestamps[i] as Field;
-    }
-    let computed_hash = hash32(hash_inputs);
+    let computed_hash = compute_tx_set_hash(amounts, timestamps);
     assert(computed_hash == tx_set_hash, "Transaction set hash mismatch");
 
     // Run the appropriate analysis
@@ -207,12 +202,7 @@ fn test_main_structuring_clean() {
     let timestamps: [u64; 16] = [1000, 2000, 3000, 4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
     // Compute tx_set_hash
-    let mut hash_inputs: [Field; 32] = [0; 32];
-    for i in 0..16 {
-        hash_inputs[i * 2] = amounts[i] as Field;
-        hash_inputs[i * 2 + 1] = timestamps[i] as Field;
-    }
-    let tx_hash = hash32(hash_inputs);
+    let tx_hash = compute_tx_set_hash(amounts, timestamps);
 
     main(amounts, timestamps, 4, ANALYSIS_STRUCTURING, true, 10000, 3600, tx_hash);
 }
@@ -222,12 +212,7 @@ fn test_main_velocity_clean() {
     let amounts: [u64; 16] = [100, 200, 300, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let timestamps: [u64; 16] = [1000, 1500, 2000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-    let mut hash_inputs: [Field; 32] = [0; 32];
-    for i in 0..16 {
-        hash_inputs[i * 2] = amounts[i] as Field;
-        hash_inputs[i * 2 + 1] = timestamps[i] as Field;
-    }
-    let tx_hash = hash32(hash_inputs);
+    let tx_hash = compute_tx_set_hash(amounts, timestamps);
 
     main(amounts, timestamps, 3, ANALYSIS_VELOCITY, true, 10000, 3600, tx_hash);
 }
@@ -237,12 +222,7 @@ fn test_main_round_amounts_clean() {
     let amounts: [u64; 16] = [1234, 5678, 3000, 9876, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let timestamps: [u64; 16] = [1000, 2000, 3000, 4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-    let mut hash_inputs: [Field; 32] = [0; 32];
-    for i in 0..16 {
-        hash_inputs[i * 2] = amounts[i] as Field;
-        hash_inputs[i * 2 + 1] = timestamps[i] as Field;
-    }
-    let tx_hash = hash32(hash_inputs);
+    let tx_hash = compute_tx_set_hash(amounts, timestamps);
 
     main(amounts, timestamps, 4, ANALYSIS_ROUND_AMOUNT, true, 10000, 3600, tx_hash);
 }
@@ -253,12 +233,7 @@ fn test_main_structuring_detected() {
     let amounts: [u64; 16] = [9500, 9800, 9200, 500, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let timestamps: [u64; 16] = [1000, 2000, 3000, 4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-    let mut hash_inputs: [Field; 32] = [0; 32];
-    for i in 0..16 {
-        hash_inputs[i * 2] = amounts[i] as Field;
-        hash_inputs[i * 2 + 1] = timestamps[i] as Field;
-    }
-    let tx_hash = hash32(hash_inputs);
+    let tx_hash = compute_tx_set_hash(amounts, timestamps);
 
     main(amounts, timestamps, 4, ANALYSIS_STRUCTURING, false, 10000, 3600, tx_hash);
 }

@@ -44,7 +44,7 @@ jobs:
         run: forge test -vvv
 
       - name: Check gas snapshot
-        run: forge snapshot --check --tolerance 1
+        run: FOUNDRY_PROFILE=default forge snapshot --check --tolerance 1
 
   circuits:
     name: Noir Circuits

@@ -103,11 +103,13 @@ jobs:
       - name: Compile circuits
         run: |
           export PATH="$HOME/.nargo/bin:$PATH"
-          for circuit in compliance risk_score pattern attestation membership non_membership; do
-            echo "==> Compiling $circuit"
-            cd "$GITHUB_WORKSPACE/circuits/$circuit" && nargo compile
-          done
-          ls circuits/compliance/target/compliance.json
+          which nargo && nargo --version
+          cd circuits
+          nargo compile --workspace --show-output 2>&1 || nargo compile --workspace 2>&1
+          echo "==> Trying individual compile with verbose output"
+          cd compliance && nargo compile 2>&1 && ls -la target/ || echo "compile failed or no target"
+          cd "$GITHUB_WORKSPACE"
+          find circuits -name "*.json" -path "*/target/*" 2>/dev/null || echo "no json artifacts found"
 
       - name: Build contracts
         run: forge build

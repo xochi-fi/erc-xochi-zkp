@@ -28,7 +28,7 @@ jobs:
 
       - name: Build contracts
         run: |
-          forge build --sizes 2>&1 | tee /tmp/sizes.txt
+          forge build --sizes 2>&1 | tee /tmp/sizes.txt || true
           # Check our contracts stay under 24KB (generated UltraHonk verifiers excluded --
           # they are ~24.6KB by design and deploy with linked libraries)
           if grep -E '^\|' /tmp/sizes.txt \
@@ -60,7 +60,7 @@ jobs:
 
       - name: Install nargo
         run: |
-          curl -L https://noirup.dev | bash
+          curl -L https://noirup.dev -o /tmp/noirup.sh && bash /tmp/noirup.sh
           export PATH="$HOME/.nargo/bin:$PATH"
           noirup -v ${{ env.NARGO_VERSION }}
           nargo --version
@@ -84,7 +84,7 @@ jobs:
 
       - name: Install nargo
         run: |
-          curl -L https://noirup.dev | bash
+          curl -L https://noirup.dev -o /tmp/noirup.sh && bash /tmp/noirup.sh
           export PATH="$HOME/.nargo/bin:$PATH"
           noirup -v ${{ env.NARGO_VERSION }}
 

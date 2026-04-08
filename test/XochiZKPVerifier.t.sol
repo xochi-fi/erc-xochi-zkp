@@ -5,6 +5,8 @@ import {Test} from "forge-std/Test.sol";
 import {XochiZKPVerifier} from "../src/XochiZKPVerifier.sol";
 import {IUltraVerifier} from "../src/interfaces/IUltraVerifier.sol";
 import {ProofTypes} from "../src/libraries/ProofTypes.sol";
+import {Ownable2Step} from "../src/libraries/Ownable2Step.sol";
+import {Pausable} from "../src/libraries/Pausable.sol";
 
 /// @dev Stub verifier that always returns true (for unit testing the router logic)
 contract StubVerifier is IUltraVerifier {
@@ -51,7 +53,7 @@ contract XochiZKPVerifierTest is Test {
     }
 
     function test_constructor_revert_zeroAddress() public {
-        vm.expectRevert(XochiZKPVerifier.ZeroAddress.selector);
+        vm.expectRevert(Ownable2Step.ZeroAddress.selector);
         new XochiZKPVerifier(address(0));
     }
 
@@ -191,13 +193,13 @@ contract XochiZKPVerifierTest is Test {
 
     function test_setVerifier_revert_notOwner() public {
         vm.prank(alice);
-        vm.expectRevert(XochiZKPVerifier.Unauthorized.selector);
+        vm.expectRevert(Ownable2Step.Unauthorized.selector);
         verifier.setVerifier(ProofTypes.COMPLIANCE, address(passingVerifier));
     }
 
     function test_setVerifier_revert_zeroAddress() public {
         vm.prank(owner);
-        vm.expectRevert(XochiZKPVerifier.ZeroAddress.selector);
+        vm.expectRevert(Ownable2Step.ZeroAddress.selector);
         verifier.setVerifier(ProofTypes.COMPLIANCE, address(0));
     }
 
@@ -233,7 +235,7 @@ contract XochiZKPVerifierTest is Test {
 
     function test_transferOwnership_revert_notOwner() public {
         vm.prank(alice);
-        vm.expectRevert(XochiZKPVerifier.Unauthorized.selector);
+        vm.expectRevert(Ownable2Step.Unauthorized.selector);
         verifier.transferOwnership(alice);
     }
 
@@ -242,7 +244,7 @@ contract XochiZKPVerifierTest is Test {
         verifier.transferOwnership(alice);
 
         vm.prank(makeAddr("bob"));
-        vm.expectRevert(XochiZKPVerifier.NotPendingOwner.selector);
+        vm.expectRevert(Ownable2Step.NotPendingOwner.selector);
         verifier.acceptOwnership();
     }
 
@@ -253,7 +255,7 @@ contract XochiZKPVerifierTest is Test {
         vm.warp(block.timestamp + 48 hours + 1);
 
         vm.prank(alice);
-        vm.expectRevert(XochiZKPVerifier.OwnershipTransferExpired.selector);
+        vm.expectRevert(Ownable2Step.OwnershipTransferExpired.selector);
         verifier.acceptOwnership();
     }
 
@@ -385,7 +387,7 @@ contract XochiZKPVerifierTest is Test {
         vm.prank(owner);
         verifier.pause();
 
-        vm.expectRevert(XochiZKPVerifier.ContractPaused.selector);
+        vm.expectRevert(Pausable.ContractPaused.selector);
         verifier.verifyProof(ProofTypes.COMPLIANCE, _dummyProof(), _complianceInputs());
     }
 
@@ -400,7 +402,7 @@ contract XochiZKPVerifierTest is Test {
         bytes[] memory inputs = new bytes[](1);
         inputs[0] = _complianceInputs();
 
-        vm.expectRevert(XochiZKPVerifier.ContractPaused.selector);
+        vm.expectRevert(Pausable.ContractPaused.selector);
         verifier.verifyProofBatch(types, proofs, inputs);
     }
 
@@ -408,7 +410,7 @@ contract XochiZKPVerifierTest is Test {
         vm.prank(owner);
         verifier.pause();
 
-        vm.expectRevert(XochiZKPVerifier.ContractPaused.selector);
+        vm.expectRevert(Pausable.ContractPaused.selector);
         verifier.verifyProofAtVersion(ProofTypes.COMPLIANCE, 1, _dummyProof(), _complianceInputs());
     }
 
@@ -430,28 +432,28 @@ contract XochiZKPVerifierTest is Test {
 
     function test_pause_revert_notOwner() public {
         vm.prank(alice);
-        vm.expectRevert(XochiZKPVerifier.Unauthorized.selector);
+        vm.expectRevert(Ownable2Step.Unauthorized.selector);
         verifier.pause();
     }
 
     function test_pause_revert_alreadyPaused() public {
         vm.startPrank(owner);
         verifier.pause();
-        vm.expectRevert(XochiZKPVerifier.ContractPaused.selector);
+        vm.expectRevert(Pausable.ContractPaused.selector);
         verifier.pause();
         vm.stopPrank();
     }
 
     function test_unpause_revert_notPaused() public {
         vm.prank(owner);
-        vm.expectRevert(XochiZKPVerifier.ContractNotPaused.selector);
+        vm.expectRevert(Pausable.ContractNotPaused.selector);
         verifier.unpause();
     }
 
     function test_pause_emitsEvent() public {
         vm.prank(owner);
         vm.expectEmit(false, false, false, true);
-        emit XochiZKPVerifier.Paused(owner);
+        emit Pausable.Paused(owner);
         verifier.pause();
     }
 
@@ -461,7 +463,7 @@ contract XochiZKPVerifierTest is Test {
 
         vm.prank(owner);
         vm.expectEmit(false, false, false, true);
-        emit XochiZKPVerifier.Unpaused(owner);
+        emit Pausable.Unpaused(owner);
         verifier.unpause();
     }
 
@@ -475,7 +477,7 @@ contract XochiZKPVerifierTest is Test {
         verifier.transferOwnership(alice);
 
         vm.expectEmit(true, false, false, false);
-        emit XochiZKPVerifier.OwnershipTransferCancelled(alice);
+        emit Ownable2Step.OwnershipTransferCancelled(alice);
         verifier.transferOwnership(bob);
         vm.stopPrank();
     }

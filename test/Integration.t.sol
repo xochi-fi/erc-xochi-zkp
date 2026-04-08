@@ -34,7 +34,7 @@ contract IntegrationTest is Test {
     bytes32 internal constant FIXTURE_NON_MEMBERSHIP_ROOT =
         0x12d001bc3463cb4d3a745f802dffd80c00a2927f77110d1b0a59b9a3bd787b86;
 
-    /// @dev Merkle root from the tier_verification fixture (provider_id=42, credential KYC basic)
+    /// @dev Merkle root from the attestation fixture (provider_id=42, credential KYC basic)
     bytes32 internal constant FIXTURE_TIER_MERKLE_ROOT =
         0x15861259068f1398397423d4b3bad764e19c1a68699115ef9ccd090a8a5eba3e;
 
@@ -44,7 +44,7 @@ contract IntegrationTest is Test {
 
         // Deploy all generated verifiers and register them
         string[6] memory circuits =
-            ["compliance", "risk_score", "anti_structuring", "tier_verification", "membership", "non_membership"];
+            ["compliance", "risk_score", "pattern", "attestation", "membership", "non_membership"];
         uint8[6] memory types = [
             ProofTypes.COMPLIANCE,
             ProofTypes.RISK_SCORE,
@@ -65,7 +65,7 @@ contract IntegrationTest is Test {
         oracle.registerMerkleRoot(FIXTURE_NON_MEMBERSHIP_ROOT);
         oracle.registerMerkleRoot(FIXTURE_TIER_MERKLE_ROOT);
 
-        // Register reporting threshold needed by anti_structuring fixture (10000)
+        // Register reporting threshold needed by pattern fixture (10000)
         oracle.registerReportingThreshold(bytes32(uint256(10000)));
 
         vm.stopPrank();
@@ -167,17 +167,17 @@ contract IntegrationTest is Test {
     }
 
     // -------------------------------------------------------------------------
-    // End-to-end: anti_structuring (PATTERN) proof
+    // End-to-end: pattern (PATTERN) proof
     // -------------------------------------------------------------------------
 
     function test_realProof_pattern_verifies() public {
-        (bytes memory proof, bytes memory publicInputs) = _loadFixture("anti_structuring");
+        (bytes memory proof, bytes memory publicInputs) = _loadFixture("pattern");
         bool valid = verifier.verifyProof(ProofTypes.PATTERN, proof, publicInputs);
         assertTrue(valid);
     }
 
     function test_realProof_pattern_submitAndCheck() public {
-        (bytes memory proof, bytes memory publicInputs) = _loadFixture("anti_structuring");
+        (bytes memory proof, bytes memory publicInputs) = _loadFixture("pattern");
         vm.prank(alice);
         IXochiZKPOracle.ComplianceAttestation memory att =
             oracle.submitCompliance(0, ProofTypes.PATTERN, proof, publicInputs, bytes32(0));
@@ -186,17 +186,17 @@ contract IntegrationTest is Test {
     }
 
     // -------------------------------------------------------------------------
-    // End-to-end: tier_verification (ATTESTATION) proof
+    // End-to-end: attestation (ATTESTATION) proof
     // -------------------------------------------------------------------------
 
     function test_realProof_attestation_verifies() public {
-        (bytes memory proof, bytes memory publicInputs) = _loadFixture("tier_verification");
+        (bytes memory proof, bytes memory publicInputs) = _loadFixture("attestation");
         bool valid = verifier.verifyProof(ProofTypes.ATTESTATION, proof, publicInputs);
         assertTrue(valid);
     }
 
     function test_realProof_attestation_submitAndCheck() public {
-        (bytes memory proof, bytes memory publicInputs) = _loadFixture("tier_verification");
+        (bytes memory proof, bytes memory publicInputs) = _loadFixture("attestation");
         vm.prank(alice);
         IXochiZKPOracle.ComplianceAttestation memory att =
             oracle.submitCompliance(0, ProofTypes.ATTESTATION, proof, publicInputs, bytes32(0));
@@ -269,8 +269,8 @@ contract IntegrationTest is Test {
     function _verifierContractName(string memory circuit) internal pure returns (string memory) {
         if (keccak256(bytes(circuit)) == keccak256("compliance")) return "ComplianceVerifier";
         if (keccak256(bytes(circuit)) == keccak256("risk_score")) return "RiskScoreVerifier";
-        if (keccak256(bytes(circuit)) == keccak256("anti_structuring")) return "AntiStructuringVerifier";
-        if (keccak256(bytes(circuit)) == keccak256("tier_verification")) return "TierVerificationVerifier";
+        if (keccak256(bytes(circuit)) == keccak256("pattern")) return "PatternVerifier";
+        if (keccak256(bytes(circuit)) == keccak256("attestation")) return "AttestationVerifier";
         if (keccak256(bytes(circuit)) == keccak256("membership")) return "MembershipVerifier";
         if (keccak256(bytes(circuit)) == keccak256("non_membership")) return "NonMembershipVerifier";
         revert("unknown circuit");

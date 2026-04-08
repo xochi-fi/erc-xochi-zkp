@@ -8,6 +8,8 @@ import {IXochiZKPOracle} from "../src/interfaces/IXochiZKPOracle.sol";
 import {IUltraVerifier} from "../src/interfaces/IUltraVerifier.sol";
 import {ProofTypes} from "../src/libraries/ProofTypes.sol";
 import {JurisdictionConfig} from "../src/libraries/JurisdictionConfig.sol";
+import {Ownable2Step} from "../src/libraries/Ownable2Step.sol";
+import {Pausable} from "../src/libraries/Pausable.sol";
 
 contract AlwaysPassVerifier is IUltraVerifier {
     function verify(bytes calldata, bytes32[] calldata) external pure returns (bool) {
@@ -51,12 +53,12 @@ contract XochiZKPOracleTest is Test {
     }
 
     function test_constructor_revert_zeroVerifier() public {
-        vm.expectRevert(XochiZKPOracle.ZeroAddress.selector);
+        vm.expectRevert(Ownable2Step.ZeroAddress.selector);
         new XochiZKPOracle(address(0), owner, INITIAL_CONFIG);
     }
 
     function test_constructor_revert_zeroOwner() public {
-        vm.expectRevert(XochiZKPOracle.ZeroAddress.selector);
+        vm.expectRevert(Ownable2Step.ZeroAddress.selector);
         new XochiZKPOracle(address(verifier), address(0), INITIAL_CONFIG);
     }
 
@@ -219,7 +221,7 @@ contract XochiZKPOracleTest is Test {
 
     function test_updateProviderConfig_revert_notOwner() public {
         vm.prank(alice);
-        vm.expectRevert(XochiZKPOracle.Unauthorized.selector);
+        vm.expectRevert(Ownable2Step.Unauthorized.selector);
         oracle.updateProviderConfig(bytes32(0), "");
     }
 
@@ -384,7 +386,7 @@ contract XochiZKPOracleTest is Test {
         vm.warp(block.timestamp + 48 hours + 1);
 
         vm.prank(alice);
-        vm.expectRevert(XochiZKPOracle.OwnershipTransferExpired.selector);
+        vm.expectRevert(Ownable2Step.OwnershipTransferExpired.selector);
         oracle.acceptOwnership();
     }
 
@@ -399,7 +401,7 @@ contract XochiZKPOracleTest is Test {
 
         // Alice can no longer accept
         vm.prank(alice);
-        vm.expectRevert(XochiZKPOracle.NotPendingOwner.selector);
+        vm.expectRevert(Ownable2Step.NotPendingOwner.selector);
         oracle.acceptOwnership();
 
         // Bob can accept
@@ -819,7 +821,7 @@ contract XochiZKPOracleTest is Test {
 
     function test_revokeConfig_revert_notOwner() public {
         vm.prank(alice);
-        vm.expectRevert(XochiZKPOracle.Unauthorized.selector);
+        vm.expectRevert(Ownable2Step.Unauthorized.selector);
         oracle.revokeConfig(INITIAL_CONFIG);
     }
 
@@ -853,7 +855,7 @@ contract XochiZKPOracleTest is Test {
 
     function test_registerMerkleRoot_revert_notOwner() public {
         vm.prank(alice);
-        vm.expectRevert(XochiZKPOracle.Unauthorized.selector);
+        vm.expectRevert(Ownable2Step.Unauthorized.selector);
         oracle.registerMerkleRoot(bytes32(uint256(0xbeef)));
     }
 
@@ -878,7 +880,7 @@ contract XochiZKPOracleTest is Test {
 
     function test_registerReportingThreshold_revert_notOwner() public {
         vm.prank(alice);
-        vm.expectRevert(XochiZKPOracle.Unauthorized.selector);
+        vm.expectRevert(Ownable2Step.Unauthorized.selector);
         oracle.registerReportingThreshold(bytes32(uint256(20000)));
     }
 
@@ -925,7 +927,7 @@ contract XochiZKPOracleTest is Test {
 
     function test_transferOwnership_revert_zeroAddress() public {
         vm.prank(owner);
-        vm.expectRevert(XochiZKPOracle.ZeroAddress.selector);
+        vm.expectRevert(Ownable2Step.ZeroAddress.selector);
         oracle.transferOwnership(address(0));
     }
 
@@ -1086,7 +1088,7 @@ contract XochiZKPOracleTest is Test {
         oracle.pause();
 
         vm.prank(alice);
-        vm.expectRevert(XochiZKPOracle.ContractPaused.selector);
+        vm.expectRevert(Pausable.ContractPaused.selector);
         oracle.submitCompliance(
             0, ProofTypes.COMPLIANCE, _uniqueProof(), _complianceInputs(), DEFAULT_PROVIDER_SET_HASH
         );
@@ -1129,7 +1131,7 @@ contract XochiZKPOracleTest is Test {
 
     function test_pause_revert_notOwner() public {
         vm.prank(alice);
-        vm.expectRevert(XochiZKPOracle.Unauthorized.selector);
+        vm.expectRevert(Ownable2Step.Unauthorized.selector);
         oracle.pause();
     }
 
@@ -1138,28 +1140,28 @@ contract XochiZKPOracleTest is Test {
         oracle.pause();
 
         vm.prank(alice);
-        vm.expectRevert(XochiZKPOracle.Unauthorized.selector);
+        vm.expectRevert(Ownable2Step.Unauthorized.selector);
         oracle.unpause();
     }
 
     function test_pause_revert_alreadyPaused() public {
         vm.startPrank(owner);
         oracle.pause();
-        vm.expectRevert(XochiZKPOracle.ContractPaused.selector);
+        vm.expectRevert(Pausable.ContractPaused.selector);
         oracle.pause();
         vm.stopPrank();
     }
 
     function test_unpause_revert_notPaused() public {
         vm.prank(owner);
-        vm.expectRevert(XochiZKPOracle.ContractNotPaused.selector);
+        vm.expectRevert(Pausable.ContractNotPaused.selector);
         oracle.unpause();
     }
 
     function test_pause_emitsEvent() public {
         vm.prank(owner);
         vm.expectEmit(false, false, false, true);
-        emit XochiZKPOracle.Paused(owner);
+        emit Pausable.Paused(owner);
         oracle.pause();
     }
 
@@ -1169,7 +1171,7 @@ contract XochiZKPOracleTest is Test {
 
         vm.prank(owner);
         vm.expectEmit(false, false, false, true);
-        emit XochiZKPOracle.Unpaused(owner);
+        emit Pausable.Unpaused(owner);
         oracle.unpause();
     }
 
@@ -1264,7 +1266,7 @@ contract XochiZKPOracleTest is Test {
         oracle.transferOwnership(alice);
 
         vm.expectEmit(true, false, false, false);
-        emit XochiZKPOracle.OwnershipTransferCancelled(alice);
+        emit Ownable2Step.OwnershipTransferCancelled(alice);
         oracle.transferOwnership(bob);
         vm.stopPrank();
     }

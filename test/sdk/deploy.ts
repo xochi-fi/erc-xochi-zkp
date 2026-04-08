@@ -136,13 +136,13 @@ export async function deployContracts(): Promise<DeployedContracts> {
     ["compliance_verifier.sol", "ComplianceVerifier", PROOF_TYPES.COMPLIANCE],
     ["risk_score_verifier.sol", "RiskScoreVerifier", PROOF_TYPES.RISK_SCORE],
     [
-      "anti_structuring_verifier.sol",
-      "AntiStructuringVerifier",
+      "pattern_verifier.sol",
+      "PatternVerifier",
       PROOF_TYPES.PATTERN,
     ],
     [
-      "tier_verification_verifier.sol",
-      "TierVerificationVerifier",
+      "attestation_verifier.sol",
+      "AttestationVerifier",
       PROOF_TYPES.ATTESTATION,
     ],
     ["membership_verifier.sol", "MembershipVerifier", PROOF_TYPES.MEMBERSHIP],

@@ -7,4 +7,14 @@ FORGE="${FOUNDRY_BIN}/forge"
 echo "pre-commit: checking Solidity formatting..."
 "$FORGE" fmt --check
 
+# If test files changed, ensure .gas-snapshot is also staged
+STAGED_TEST_FILES=$(git diff --cached --name-only -- 'test/*.sol' 'test/**/*.sol' 'src/*.sol' 'src/**/*.sol')
+if [ -n "$STAGED_TEST_FILES" ]; then
+    if ! git diff --cached --name-only | grep -q '^\.gas-snapshot$'; then
+        echo "pre-commit: contract/test files changed but .gas-snapshot not staged"
+        echo "  run 'make snapshot' and stage .gas-snapshot"
+        exit 1
+    fi
+fi
+
 echo "pre-commit: ok"

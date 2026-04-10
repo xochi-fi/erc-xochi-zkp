@@ -2,7 +2,7 @@
 eip: TBD
 title: Zero-Knowledge Compliance Oracle
 description: On-chain verification of AML/sanctions compliance via zero-knowledge proofs without revealing transaction data
-author: DROO (@Hydepwns), Bloo (@bloo-berries)
+author: DROO (@DROOdotFOO), Bloo (@bloo-berries)
 discussions-to: TBD
 status: Draft
 type: Standards Track

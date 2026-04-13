@@ -1,14 +1,13 @@
 ---
 eip: TBD
 title: Zero-Knowledge Compliance Oracle
-description: On-chain verification of AML/sanctions compliance via zero-knowledge proofs without revealing transaction data
+description: On-chain ZK compliance verification without revealing transaction data
 author: DROO (@DROOdotFOO), Bloo (@bloo-berries)
 discussions-to: TBD
 status: Draft
 type: Standards Track
 category: ERC
 created: 2026-04-07
-requires: 5564, 6538
 ---
 
 ## Abstract
@@ -17,11 +16,11 @@ A standard interface for on-chain verification of regulatory compliance (AML, sa
 
 ## Motivation
 
-Public blockchains force a binary choice between transparency and privacy. Transparent execution (Uniswap, CoW Protocol) exposes trades to MEV extraction ($1.8B+ since the Merge). Privacy tools (Tornado Cash) have been sanctioned for lacking compliance mechanisms.
+Public blockchains force a binary choice between transparency and privacy. Transparent execution (Uniswap, CoW Protocol) exposes trades to billions in cumulative MEV extraction. Privacy tools (Tornado Cash) have been sanctioned for lacking compliance mechanisms.
 
 Existing approaches to compliant privacy fall short:
 
-- **View keys** (Railgun, Panther): Trade privately, then reveal raw transaction data to auditors on request. This leaks the data. It's just delayed transparency.
+- **View keys** (Railgun, Panther): Trade privately, then reveal raw transaction data to auditors on request. This leaks the data: it is delayed transparency.
 - **TEE-based compliance** (various): Rely on hardware trust assumptions that have been broken repeatedly (SGX side channels, key extraction).
 - **Compliance-by-exclusion** (Privacy Pools): Prove you're NOT in a bad set. Doesn't prove you ARE compliant with specific jurisdiction rules.
 
@@ -35,7 +34,7 @@ The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "S
 
 - **providerSetHash**: A commitment to the specific set of screening providers and their weights used for a particular compliance proof. Included in each attestation for retroactive verification.
 - **providerConfigHash**: A hash of the global provider weight configuration published by the oracle administrator. Versioned on-chain; weight changes push a new entry to the config history.
-- **attestation TTL**: The duration (in seconds) for which a compliance attestation remains valid after submission. Expired attestations remain queryable via `getHistoricalProof()` but are not considered valid by `checkCompliance()`.
+- **attestation TTL**: The duration (in seconds) for which a compliance attestation remains valid after on-chain recording. Expired attestations remain queryable via `getHistoricalProof()` but are not considered valid by `checkCompliance()`.
 
 ### Proof Types
 
@@ -67,7 +66,7 @@ interface IXochiZKPVerifier {
         bytes calldata publicInputs
     ) external view returns (bool valid);
 
-    /// @notice Verify a batch of proofs atomically (max 100 proofs per batch)
+    /// @notice Verify a batch of proofs atomically
     /// @param proofTypes Array of proof types
     /// @param proofs Array of encoded proofs
     /// @param publicInputs Array of public input sets
@@ -279,7 +278,7 @@ Implementations MAY migrate to Poseidon2 when high-level APIs stabilize in the c
 
 The non-membership circuit proves that an element $e$ is NOT in a sorted Merkle tree by demonstrating adjacency: there exist two consecutive leaves $l$ and $h$ in the tree such that $l < e < h$.
 
-Because Noir Field elements are ~254 bits but the comparison operates on u64, circuits MUST range-check all three values (`element`, `low_leaf`, `high_leaf`) to fit within u64 before casting. Without this check, a ~254-bit Field value could wrap when truncated to u64, producing a false non-membership proof.
+Circuits that compare elements using fixed-width integers MUST range-check all three values (`element`, `low_leaf`, `high_leaf`) to fit within the comparison width before casting. Without this check, a large field element could wrap when truncated, producing a false non-membership proof.
 
 ### Retroactive Flagging
 
@@ -316,7 +315,7 @@ Several existing and emerging standards address compliance, privacy, or on-chain
 
 **ERC-3643 (T-REX).** The ratified compliance token standard for regulated securities, with $32B+ in tokenized assets. ERC-3643 requires identity revelation via ONCHAINID claims verified by trusted issuers. This ERC proves compliance without revealing identity data, provider signals, or transaction amounts. The two standards are complementary: this ERC could serve as a ZK-enhanced identity provider within an ERC-3643 deployment.
 
-**Privacy Pools (0xbow).** Live on Ethereum mainnet since March 2025. Users prove their withdrawal originates from a "clean" deposit set using ZK proofs, with Association Set Providers (ASPs) maintaining approved deposit lists. Privacy Pools validates the "prove compliance without revealing data" model. However, set membership is a subset of what regulatory compliance requires. This ERC extends the approach to multi-dimensional compliance: risk scoring, anti-structuring detection, credential verification, and membership/non-membership proofs.
+**Privacy Pools (0xbow).** Live on Ethereum mainnet since March 2025. Users prove their withdrawal originates from a "clean" deposit set using ZK proofs, with Association Set Providers (ASPs) maintaining approved deposit lists. The Privacy Pools protocol validates the "prove compliance without revealing data" model. However, set membership is a subset of what regulatory compliance requires. This ERC extends the approach to multi-dimensional compliance: risk scoring, anti-structuring detection, credential verification, and membership/non-membership proofs.
 
 **EIP-7963.** An oracle-permissioned ERC-20 that validates token transfers via ZK proofs against off-chain payment instructions (ISO 20022 format), using RISC Zero as the proof system. EIP-7963 gates a single token's transfers through a single oracle with a single proof type. This ERC provides standalone compliance attestations with six proof types, usable by any contract, and is not gated to token operations.
 
@@ -336,7 +335,7 @@ Several existing and emerging standards address compliance, privacy, or on-chain
 
 **Provider collusion.** If all screening providers collude, they could issue false clean signals. Implementations SHOULD require attestations from multiple independent providers and weight them based on enforcement track record.
 
-**Timestamp manipulation.** Proofs commit to block timestamps. Validators could manipulate timestamps by ~15 seconds on Ethereum. This is acceptable for compliance windows measured in days. Circuits SHOULD enforce realistic timestamp bounds (e.g., after 2021-01-01 and before year ~36000) to reject obviously invalid values.
+**Timestamp manipulation.** Proofs commit to block timestamps. Block proposers control the timestamp, constrained only to be >= the parent block's timestamp. This is acceptable for compliance windows measured in days. Circuits SHOULD enforce realistic timestamp bounds (e.g., after 2021-01-01 and before year ~36000) to reject obviously invalid values.
 
 **Regulatory acceptance.** This standard provides a technical mechanism for ZK compliance. Whether specific jurisdictions accept ZK proofs as sufficient compliance evidence is a legal question, not a technical one. The VARA (Dubai) definition of "anonymity-enhanced crypto" excludes assets with "mitigating technologies" for traceability. This standard provides exactly that technology.
 
@@ -353,7 +352,7 @@ Several existing and emerging standards address compliance, privacy, or on-chain
 - MEMBERSHIP, NON_MEMBERSHIP, and ATTESTATION proofs MUST validate `merkle_root` against a registry of known roots.
 - Unknown proof types (outside 0x01-0x06) MUST be rejected.
 
-**Proof replay prevention.** Proof hashes MUST be keyed on both the proof bytes and the proof type: `keccak256(abi.encodePacked(proof, proofType))`. Keying on proof bytes alone would prevent the same bytes from being submitted for a different proof type, which is an unnecessary restriction.
+**Proof replay prevention.** Proof hashes MUST be keyed on both the proof bytes and the proof type: `keccak256(abi.encodePacked(proof, proofType))`. Including `proofType` in the hash ensures that proof uniqueness is scoped per proof type: identical proof bytes submitted for different proof types are treated as distinct proofs.
 
 **Config and root revocation.** Provider configuration hashes and merkle roots SHOULD be revocable. Without revocation, a discovered-to-be-flawed configuration or a compromised merkle tree remains accepted forever. Implementations MUST NOT allow revoking the currently active provider configuration. Provider configuration history SHOULD be bounded to prevent unbounded storage growth (e.g., 256 entries).
 
@@ -372,7 +371,7 @@ A reference implementation is provided at [erc-xochi-zkp](https://github.com/xoc
 - **Solidity contracts**: `src/XochiZKPVerifier.sol`, `src/XochiZKPOracle.sol` (Foundry, Solidity 0.8.28)
 - **Noir circuits**: `circuits/` (one per proof type, compiled with nargo 1.0)
 - **Generated verifiers**: `src/generated/` (UltraHonk verifiers generated by Barretenberg)
-- **Test suite**: 160 Solidity tests (unit, fuzz, invariant, integration with real proofs for all 6 proof types), 47 circuit tests
+- **Test suite**: Solidity tests (unit, fuzz, invariant, integration with real proofs for all 6 proof types) and circuit tests
 
 ## Test Vectors
 

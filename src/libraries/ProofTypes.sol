@@ -23,8 +23,8 @@ library ProofTypes {
     function expectedPublicInputCount(uint8 proofType) internal pure returns (uint256 count) {
         // compliance: jurisdiction_id, provider_set_hash, config_hash, timestamp, meets_threshold
         if (proofType == COMPLIANCE) return 5;
-        // risk_score: proof_type, direction, bound_lower, bound_upper, result, config_hash
-        if (proofType == RISK_SCORE) return 6;
+        // risk_score: proof_type, direction, bound_lower, bound_upper, result, config_hash, provider_set_hash
+        if (proofType == RISK_SCORE) return 7;
         // pattern: analysis_type, result, reporting_threshold, time_window, tx_set_hash
         if (proofType == PATTERN) return 5;
         // attestation: provider_id, credential_type, is_valid, merkle_root, current_timestamp

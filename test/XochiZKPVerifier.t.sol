@@ -501,7 +501,7 @@ contract XochiZKPVerifierTest is Test {
         );
     }
 
-    /// @dev 6 public inputs: proof_type, direction, bound_lower, bound_upper, result, config_hash
+    /// @dev 7 public inputs: proof_type, direction, bound_lower, bound_upper, result, config_hash, provider_set_hash
     function _riskScoreInputs() internal pure returns (bytes memory) {
         return abi.encodePacked(
             bytes32(uint256(1)), // proof_type: threshold
@@ -509,7 +509,8 @@ contract XochiZKPVerifierTest is Test {
             bytes32(uint256(5000)), // bound_lower
             bytes32(uint256(0)), // bound_upper (unused for threshold)
             bytes32(uint256(1)), // result: true
-            bytes32(uint256(0xccdd)) // config_hash
+            bytes32(uint256(0xccdd)), // config_hash
+            bytes32(uint256(0xeeff)) // provider_set_hash
         );
     }
 

@@ -43,7 +43,7 @@ Implementations MUST support the following proof types. Each type corresponds to
 | Type ID | Name           | Circuit           | Public inputs                                                                          | Private inputs                                                 |
 | ------- | -------------- | ----------------- | -------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
 | 0x01    | Compliance     | compliance        | jurisdiction_id, provider_set_hash, config_hash, timestamp, meets_threshold            | signals, weights, weight_sum, provider_ids, num_providers      |
-| 0x02    | Risk Score     | risk_score        | proof_type (threshold/range), direction, bound_lower, bound_upper, result, config_hash | signals, weights, weight_sum                                   |
+| 0x02    | Risk Score     | risk_score        | proof_type (threshold/range), direction, bound_lower, bound_upper, result, config_hash, provider_set_hash | signals, weights, weight_sum, provider_ids, num_providers      |
 | 0x03    | Pattern        | pattern           | analysis_type, result, reporting_threshold, time_window, tx_set_hash                   | amounts, timestamps, num_transactions                          |
 | 0x04    | Attestation    | attestation       | provider_id, credential_type, is_valid, merkle_root, current_timestamp                 | credential_hash, subject, attribute, expiry, merkle_proof      |
 | 0x05    | Membership     | membership        | merkle_root, set_id, timestamp, is_member                                              | element, merkle_index, merkle_path                             |
@@ -223,7 +223,7 @@ The following validation MUST be performed per proof type:
 | Proof Type     | Validated Fields                                                 | Registry                     |
 | -------------- | ---------------------------------------------------------------- | ---------------------------- |
 | COMPLIANCE     | jurisdiction_id, provider_set_hash, config_hash, meets_threshold | Config hash registry         |
-| RISK_SCORE     | result, config_hash                                              | Config hash registry         |
+| RISK_SCORE     | result, config_hash, provider_set_hash                           | Config hash registry         |
 | PATTERN        | result, reporting_threshold, tx_set_hash != 0                    | Reporting threshold registry |
 | ATTESTATION    | is_valid, merkle_root                                            | Merkle root registry         |
 | MEMBERSHIP     | merkle_root, is_member                                           | Merkle root registry         |
@@ -233,7 +233,7 @@ The following validation MUST be performed per proof type:
 
 Each proof type includes a boolean result field (`meets_threshold`, `result`, `is_valid`, `is_member`, `is_non_member`) in its public inputs. A valid ZK proof with a false result means the prover proved they do NOT satisfy the condition (e.g., non-compliant, not a member). Implementations MUST reject proofs where the result field is not `true` (encoded as `bytes32(uint256(1))`). Without this check, a user could submit a cryptographically valid proof of non-compliance and receive a compliant attestation.
 
-The `providerSetHash` parameter in `submitCompliance()` is only semantically meaningful for COMPLIANCE proofs, which include it as a public input. For all other proof types, implementations MUST ignore the caller-supplied `providerSetHash` and store `bytes32(0)` in the attestation to prevent injection of arbitrary values.
+The `providerSetHash` parameter in `submitCompliance()` is semantically meaningful for COMPLIANCE proofs, which include it as a caller-supplied public input. RISK_SCORE proofs also commit to a `provider_set_hash` in their circuit public inputs, but this value is embedded in the proof itself and does not come from the caller parameter. For all non-COMPLIANCE proof types, implementations MUST ignore the caller-supplied `providerSetHash` and store `bytes32(0)` in the attestation to prevent injection of arbitrary values.
 
 ### Validation Registries
 
@@ -335,7 +335,7 @@ Several existing and emerging standards address compliance, privacy, or on-chain
 
 **Provider collusion.** If all screening providers collude, they could issue false clean signals. Implementations SHOULD require attestations from multiple independent providers and weight them based on enforcement track record.
 
-**Timestamp manipulation.** Proofs commit to block timestamps. Block proposers control the timestamp, constrained only to be >= the parent block's timestamp. This is acceptable for compliance windows measured in days. Circuits SHOULD enforce realistic timestamp bounds (e.g., after 2021-01-01 and before year ~36000) to reject obviously invalid values.
+**Timestamp manipulation.** Proofs commit to block timestamps. Block proposers control the timestamp, constrained only to be >= the parent block's timestamp. This is acceptable for compliance windows measured in days. Circuits MUST enforce realistic timestamp bounds (e.g., after 2021-01-01 and before year ~36000) to reject obviously invalid values. This applies to both public timestamp inputs (compliance, membership, non-membership) and private transaction timestamps (pattern).
 
 **Regulatory acceptance.** This standard provides a technical mechanism for ZK compliance. Whether specific jurisdictions accept ZK proofs as sufficient compliance evidence is a legal question, not a technical one. The VARA (Dubai) definition of "anonymity-enhanced crypto" excludes assets with "mitigating technologies" for traceability. This standard provides exactly that technology.
 
@@ -348,6 +348,7 @@ Several existing and emerging standards address compliance, privacy, or on-chain
 - ALL proof types MUST validate their boolean result field (`meets_threshold`, `result`, `is_valid`, `is_member`, `is_non_member`) equals `bytes32(uint256(1))`. A valid proof with a false result proves non-compliance; accepting it would record a compliant attestation for a non-compliant subject.
 - COMPLIANCE and RISK_SCORE proofs MUST validate `config_hash` against a registry of known configurations.
 - COMPLIANCE proofs MUST validate `jurisdiction_id` and `provider_set_hash` against caller-supplied parameters.
+- RISK_SCORE proofs commit to `provider_set_hash` as a public input, binding the proof to a specific set of screening providers. This prevents a prover from fabricating signals from unverified providers.
 - PATTERN (anti-structuring) proofs MUST validate `reporting_threshold` against a per-jurisdiction registry.
 - MEMBERSHIP, NON_MEMBERSHIP, and ATTESTATION proofs MUST validate `merkle_root` against a registry of known roots.
 - Unknown proof types (outside 0x01-0x06) MUST be rejected.
@@ -383,7 +384,7 @@ The reference implementation includes binary proof fixtures in `test/fixtures/` 
 | Proof Type     | Public Inputs Size   | Witness Summary                                                                                      |
 | -------------- | -------------------- | ---------------------------------------------------------------------------------------------------- |
 | COMPLIANCE     | 160 bytes (5 inputs) | Single provider (id=1, weight=100), signal=20, EU jurisdiction, score=2000 bps, meets_threshold=true |
-| RISK_SCORE     | 192 bytes (6 inputs) | Single provider, signal=60, threshold proof, bound=5000, result=true                                 |
+| RISK_SCORE     | 224 bytes (7 inputs) | Single provider (id=1, weight=100), signal=60, threshold proof, bound=5000, result=true              |
 | PATTERN        | 160 bytes (5 inputs) | 4 transactions (500/1200/3000/7500), structuring analysis, threshold=10000, clean=true               |
 | ATTESTATION    | 160 bytes (5 inputs) | Provider 42, KYC basic credential, expiry=2000000000, current=1700000000, valid=true                 |
 | MEMBERSHIP     | 128 bytes (4 inputs) | Element=42, set_id=1, index 0 in 20-level Merkle tree, is_member=true                                |

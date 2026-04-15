@@ -15,13 +15,22 @@
 ///   - bound_upper: upper bound (unused for 0x01, range ceiling for 0x02)
 ///   - result: boolean, does the score satisfy the condition?
 ///   - config_hash: hash of published weight configuration
+///   - provider_set_hash: commitment to which providers were used
 ///
 /// Private inputs:
 ///   - signals: per-provider risk signals
 ///   - weights: per-provider weights
 ///   - weight_sum: normalization factor
+///   - provider_ids: identifiers for each provider
+///   - num_providers: how many providers are active (1-8)
 
-use xochi_shared::{compute_risk_score, verify_weight_sum, compute_config_hash};
+use xochi_shared::{
+    MAX_PROVIDERS,
+    compute_risk_score,
+    verify_weight_sum,
+    compute_config_hash,
+    compute_provider_set_hash,
+};
 
 /// Threshold proof type
 global PROOF_THRESHOLD: u8 = 0x01;
@@ -37,6 +46,8 @@ fn main(
     signals: [u32; 8],
     weights: [u32; 8],
     weight_sum: u32,
+    provider_ids: [Field; 8],    // provider identifiers
+    num_providers: u32,          // how many providers are active (1-8)
 
     // --- Public ---
     proof_type: pub u8,       // 0x01=threshold, 0x02=range
@@ -45,26 +56,38 @@ fn main(
     bound_upper: pub u32,     // range upper bound (in basis points, 0 for threshold)
     result: pub bool,         // does the score satisfy the condition?
     config_hash: pub Field,   // published weight config hash
+    provider_set_hash: pub Field, // commitment to providers used
 ) {
     // 1. Validate inputs
+    assert(num_providers >= 1, "At least one provider required");
+    assert(num_providers <= MAX_PROVIDERS, "Too many providers");
     assert(weight_sum > 0, "Weight sum must be positive");
     assert(
         (proof_type == PROOF_THRESHOLD) | (proof_type == PROOF_RANGE),
         "Invalid proof type",
     );
 
+    // 2. Validate signals and provider slots
     for i in 0..8 {
-        assert(signals[i] <= 100, "Signal out of range");
+        if (i as u32) < num_providers {
+            assert(signals[i] <= 100, "Signal out of range");
+            assert(weights[i] > 0, "Active provider weight must be positive");
+            assert(provider_ids[i] != 0, "Active provider ID must be non-zero");
+        } else {
+            assert(signals[i] == 0, "Inactive signal must be zero");
+            assert(weights[i] == 0, "Inactive weight must be zero");
+            assert(provider_ids[i] == 0, "Inactive provider ID must be zero");
+        }
     }
 
     // Verify weight_sum matches actual sum of weights (prevents prover from
     // passing an arbitrary denominator to inflate/deflate the score)
     verify_weight_sum(weights, weight_sum);
 
-    // 2. Compute the risk score
+    // 3. Compute the risk score
     let score = compute_risk_score(signals, weights, weight_sum);
 
-    // 3. Verify the claimed result
+    // 4. Verify the claimed result
     if proof_type == PROOF_THRESHOLD {
         if direction == DIRECTION_GT {
             assert(result == (score > bound_lower), "Threshold GT mismatch");
@@ -80,9 +103,13 @@ fn main(
         assert(result == in_range, "Range mismatch");
     }
 
-    // 4. Verify config hash
+    // 5. Verify config hash
     let computed_config = compute_config_hash(weights);
     assert(computed_config == config_hash, "Config hash mismatch");
+
+    // 6. Verify provider set hash matches the committed set
+    let computed_provider_hash = compute_provider_set_hash(provider_ids, weights);
+    assert(computed_provider_hash == provider_set_hash, "Provider set hash mismatch");
 }
 
 #[test]
@@ -117,85 +144,128 @@ fn test_range_in_bounds() {
 fn test_main_threshold_gt() {
     let signals = [60, 0, 0, 0, 0, 0, 0, 0];
     let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+    let provider_ids: [Field; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
 
     let config = compute_config_hash(weights);
+    let provider_hash = compute_provider_set_hash(provider_ids, weights);
 
     // score = 6000 > 5000
-    main(signals, weights, 100, PROOF_THRESHOLD, DIRECTION_GT, 5000, 0, true, config);
+    main(signals, weights, 100, provider_ids, 1, PROOF_THRESHOLD, DIRECTION_GT, 5000, 0, true, config, provider_hash);
 }
 
 #[test]
 fn test_main_threshold_lt() {
     let signals = [20, 0, 0, 0, 0, 0, 0, 0];
     let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+    let provider_ids: [Field; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
 
     let config = compute_config_hash(weights);
+    let provider_hash = compute_provider_set_hash(provider_ids, weights);
 
     // score = 2000 < 5000
-    main(signals, weights, 100, PROOF_THRESHOLD, DIRECTION_LT, 5000, 0, true, config);
+    main(signals, weights, 100, provider_ids, 1, PROOF_THRESHOLD, DIRECTION_LT, 5000, 0, true, config, provider_hash);
 }
 
 #[test]
 fn test_main_range_proof() {
     let signals = [45, 0, 0, 0, 0, 0, 0, 0];
     let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+    let provider_ids: [Field; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
 
     let config = compute_config_hash(weights);
+    let provider_hash = compute_provider_set_hash(provider_ids, weights);
 
     // score = 4500, in [4000, 5000]
-    main(signals, weights, 100, PROOF_RANGE, 0, 4000, 5000, true, config);
+    main(signals, weights, 100, provider_ids, 1, PROOF_RANGE, 0, 4000, 5000, true, config, provider_hash);
 }
 
 #[test(should_fail_with = "Weight sum mismatch")]
 fn test_main_revert_weight_sum_mismatch() {
     let signals = [60, 0, 0, 0, 0, 0, 0, 0];
     let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+    let provider_ids: [Field; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
 
     let config = compute_config_hash(weights);
+    let provider_hash = compute_provider_set_hash(provider_ids, weights);
 
     // Pass weight_sum=1 instead of correct 100, should fail
-    main(signals, weights, 1, PROOF_THRESHOLD, DIRECTION_GT, 0, 0, true, config);
+    main(signals, weights, 1, provider_ids, 1, PROOF_THRESHOLD, DIRECTION_GT, 0, 0, true, config, provider_hash);
 }
 
 #[test]
 fn test_main_range_proof_out_of_bounds() {
     let signals = [60, 0, 0, 0, 0, 0, 0, 0];
     let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+    let provider_ids: [Field; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
 
     let config = compute_config_hash(weights);
+    let provider_hash = compute_provider_set_hash(provider_ids, weights);
 
     // score = 6000, NOT in [4000, 5000]
-    main(signals, weights, 100, PROOF_RANGE, 0, 4000, 5000, false, config);
+    main(signals, weights, 100, provider_ids, 1, PROOF_RANGE, 0, 4000, 5000, false, config, provider_hash);
 }
 
 #[test]
 fn test_main_range_equal_bounds() {
     let signals = [60, 0, 0, 0, 0, 0, 0, 0];
     let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+    let provider_ids: [Field; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
 
     let config = compute_config_hash(weights);
+    let provider_hash = compute_provider_set_hash(provider_ids, weights);
 
     // score = 6000, range [6000, 6000] -> in range
-    main(signals, weights, 100, PROOF_RANGE, 0, 6000, 6000, true, config);
+    main(signals, weights, 100, provider_ids, 1, PROOF_RANGE, 0, 6000, 6000, true, config, provider_hash);
 }
 
 #[test]
 fn test_main_threshold_at_exact_bound() {
     let signals = [50, 0, 0, 0, 0, 0, 0, 0];
     let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+    let provider_ids: [Field; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
 
     let config = compute_config_hash(weights);
+    let provider_hash = compute_provider_set_hash(provider_ids, weights);
 
     // score = 5000, GT 5000 -> 5000 > 5000 is false
-    main(signals, weights, 100, PROOF_THRESHOLD, DIRECTION_GT, 5000, 0, false, config);
+    main(signals, weights, 100, provider_ids, 1, PROOF_THRESHOLD, DIRECTION_GT, 5000, 0, false, config, provider_hash);
 }
 
 #[test(should_fail_with = "Invalid direction")]
 fn test_main_revert_invalid_direction() {
     let signals = [50, 0, 0, 0, 0, 0, 0, 0];
     let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+    let provider_ids: [Field; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
+
+    let config = compute_config_hash(weights);
+    let provider_hash = compute_provider_set_hash(provider_ids, weights);
+
+    main(signals, weights, 100, provider_ids, 1, PROOF_THRESHOLD, 3, 5000, 0, false, config, provider_hash);
+}
+
+#[test(should_fail_with = "Provider set hash mismatch")]
+fn test_main_revert_wrong_provider_hash() {
+    let signals = [60, 0, 0, 0, 0, 0, 0, 0];
+    let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+    let provider_ids: [Field; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
 
     let config = compute_config_hash(weights);
 
-    main(signals, weights, 100, PROOF_THRESHOLD, 3, 5000, 0, false, config);
+    // Use a different provider set to compute the hash (provider 99 instead of 1)
+    let fake_ids: [Field; 8] = [99, 0, 0, 0, 0, 0, 0, 0];
+    let wrong_hash = compute_provider_set_hash(fake_ids, weights);
+
+    main(signals, weights, 100, provider_ids, 1, PROOF_THRESHOLD, DIRECTION_GT, 5000, 0, true, config, wrong_hash);
+}
+
+#[test(should_fail_with = "Inactive signal must be zero")]
+fn test_main_revert_nonzero_inactive_signal() {
+    let signals = [60, 50, 0, 0, 0, 0, 0, 0]; // signal[1] nonzero but only 1 provider
+    let weights: [u32; 8] = [100, 0, 0, 0, 0, 0, 0, 0];
+    let provider_ids: [Field; 8] = [1, 0, 0, 0, 0, 0, 0, 0];
+
+    let config = compute_config_hash(weights);
+    let provider_hash = compute_provider_set_hash(provider_ids, weights);
+
+    main(signals, weights, 100, provider_ids, 1, PROOF_THRESHOLD, DIRECTION_GT, 5000, 0, true, config, provider_hash);
 }

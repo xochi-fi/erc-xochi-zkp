@@ -682,7 +682,8 @@ contract XochiZKPOracleTest is Test {
             bytes32(uint256(5000)), // bound_lower
             bytes32(uint256(0)), // bound_upper
             bytes32(uint256(0)), // result = false
-            INITIAL_CONFIG // config_hash
+            INITIAL_CONFIG, // config_hash
+            bytes32(uint256(0xeeff)) // provider_set_hash
         );
         vm.prank(alice);
         vm.expectRevert(XochiZKPOracle.ProofResultNegative.selector);
@@ -1308,7 +1309,8 @@ contract XochiZKPOracleTest is Test {
                 bytes32(uint256(5000)),
                 bytes32(uint256(0)),
                 bytes32(uint256(0)),
-                INITIAL_CONFIG // result = 0
+                INITIAL_CONFIG, // result = 0
+                bytes32(uint256(0xeeff)) // provider_set_hash
             );
         } else if (proofType == ProofTypes.PATTERN) {
             publicInputs = abi.encodePacked(
@@ -1430,7 +1432,8 @@ contract XochiZKPOracleTest is Test {
             bytes32(uint256(5000)), // bound_lower
             bytes32(uint256(0)), // bound_upper
             bytes32(uint256(1)), // result
-            configHash // config_hash
+            configHash, // config_hash
+            bytes32(uint256(0xeeff)) // provider_set_hash
         );
     }
 

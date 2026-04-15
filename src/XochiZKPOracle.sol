@@ -400,6 +400,7 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         //   [3]: bound_upper
         //   [4]: result
         //   [5]: config_hash
+        //   [6]: provider_set_hash
         bytes32 proofResult = bytes32(publicInputs[128:160]);
         bytes32 proofConfigHash = bytes32(publicInputs[160:192]);
         if (proofResult != bytes32(uint256(1))) revert ProofResultNegative();

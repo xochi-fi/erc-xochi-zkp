@@ -21,7 +21,7 @@
 ///   - timestamps: transaction timestamps
 ///   - num_transactions: how many are active
 
-use xochi_shared::{MAX_TRANSACTIONS, compute_tx_set_hash};
+use xochi_shared::{MAX_TRANSACTIONS, compute_tx_set_hash, validate_timestamp};
 
 /// Structuring: amounts clustered just below threshold
 global ANALYSIS_STRUCTURING: u8 = 1;
@@ -64,10 +64,13 @@ fn main(
         reporting_threshold <= MAX_REPORTING_THRESHOLD,
         "Threshold too large, would overflow",
     );
+    assert(time_window > 0, "Time window must be positive");
 
-    // Ensure inactive slots are zeroed
+    // Validate active slots have sane timestamps; ensure inactive slots are zeroed
     for i in 0..16 {
-        if (i as u32) >= num_transactions {
+        if (i as u32) < num_transactions {
+            validate_timestamp(timestamps[i] as Field);
+        } else {
             assert(amounts[i] == 0, "Inactive amount must be zero");
             assert(timestamps[i] == 0, "Inactive timestamp must be zero");
         }
@@ -183,7 +186,7 @@ fn test_detected_structuring() {
 
 #[test]
 fn test_clean_velocity() {
-    let timestamps: [u64; 16] = [1000, 1500, 2000, 2500, 3000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1700000000, 1700000500, 1700001000, 1700001500, 1700002000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     let clean = check_velocity(timestamps, 5, 3600);
     assert(clean == true);
 }
@@ -199,9 +202,8 @@ fn test_clean_round_amounts() {
 #[test]
 fn test_main_structuring_clean() {
     let amounts: [u64; 16] = [500, 1200, 3000, 7500, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let timestamps: [u64; 16] = [1000, 2000, 3000, 4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1700000000, 1700001000, 1700002000, 1700003000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
-    // Compute tx_set_hash
     let tx_hash = compute_tx_set_hash(amounts, timestamps);
 
     main(amounts, timestamps, 4, ANALYSIS_STRUCTURING, true, 10000, 3600, tx_hash);
@@ -210,7 +212,7 @@ fn test_main_structuring_clean() {
 #[test]
 fn test_main_velocity_clean() {
     let amounts: [u64; 16] = [100, 200, 300, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let timestamps: [u64; 16] = [1000, 1500, 2000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1700000000, 1700000500, 1700001000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
     let tx_hash = compute_tx_set_hash(amounts, timestamps);
 
@@ -220,7 +222,7 @@ fn test_main_velocity_clean() {
 #[test]
 fn test_main_round_amounts_clean() {
     let amounts: [u64; 16] = [1234, 5678, 3000, 9876, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let timestamps: [u64; 16] = [1000, 2000, 3000, 4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1700000000, 1700001000, 1700002000, 1700003000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
     let tx_hash = compute_tx_set_hash(amounts, timestamps);
 
@@ -231,7 +233,7 @@ fn test_main_round_amounts_clean() {
 fn test_main_structuring_detected() {
     // 3 of 4 amounts in [9000, 10000) -> structuring detected
     let amounts: [u64; 16] = [9500, 9800, 9200, 500, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let timestamps: [u64; 16] = [1000, 2000, 3000, 4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1700000000, 1700001000, 1700002000, 1700003000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
     let tx_hash = compute_tx_set_hash(amounts, timestamps);
 
@@ -242,7 +244,7 @@ fn test_main_structuring_detected() {
 fn test_structuring_threshold_boundary() {
     // amounts == threshold, NOT < threshold, so not in suspicious range
     let amounts: [u64; 16] = [10000, 10000, 10000, 10000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let timestamps: [u64; 16] = [1000, 2000, 3000, 4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1700000000, 1700001000, 1700002000, 1700003000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
     let tx_hash = compute_tx_set_hash(amounts, timestamps);
 
@@ -252,7 +254,7 @@ fn test_structuring_threshold_boundary() {
 #[test]
 fn test_velocity_exactly_max() {
     let amounts: [u64; 16] = [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 0, 0, 0, 0, 0, 0];
-    let timestamps: [u64; 16] = [1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 0, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1700000000, 1700000100, 1700000200, 1700000300, 1700000400, 1700000500, 1700000600, 1700000700, 1700000800, 1700000900, 0, 0, 0, 0, 0, 0];
 
     let tx_hash = compute_tx_set_hash(amounts, timestamps);
 
@@ -262,7 +264,7 @@ fn test_velocity_exactly_max() {
 #[test]
 fn test_velocity_exceeds_max() {
     let amounts: [u64; 16] = [100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 100, 0, 0, 0, 0, 0];
-    let timestamps: [u64; 16] = [1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800, 1900, 2000, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1700000000, 1700000100, 1700000200, 1700000300, 1700000400, 1700000500, 1700000600, 1700000700, 1700000800, 1700000900, 1700001000, 0, 0, 0, 0, 0];
 
     let tx_hash = compute_tx_set_hash(amounts, timestamps);
 
@@ -273,7 +275,7 @@ fn test_velocity_exceeds_max() {
 fn test_round_amounts_all_round() {
     // 4/4 round amounts -> round_count*100=400, num*80=320, 400 < 320 is false -> not clean
     let amounts: [u64; 16] = [1000, 2000, 3000, 4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
-    let timestamps: [u64; 16] = [1000, 2000, 3000, 4000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1700000000, 1700001000, 1700002000, 1700003000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
 
     let tx_hash = compute_tx_set_hash(amounts, timestamps);
 

@@ -40,6 +40,9 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
     /// @notice Track used proof hashes to prevent replay
     mapping(bytes32 proofHash => bool used) internal _usedProofs;
 
+    /// @notice Proof type per proof hash (for downstream proof-type verification)
+    mapping(bytes32 proofHash => uint8 proofType) internal _proofTypes;
+
     /// @notice Set of all valid (current + historical) provider config hashes
     mapping(bytes32 configHash => bool valid) internal _validConfigs;
 
@@ -61,6 +64,7 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
     error InvalidReportingThreshold(bytes32 threshold);
     error CannotRevokeCurrentConfig();
     error ProofResultNegative();
+    error SubmitterMismatch();
     error ConfigHistoryFull();
     error ConfigAlreadyCurrent();
     error AlreadyRegistered();
@@ -132,6 +136,7 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         uint256 previousExpiresAt = _attestations[msg.sender][jurisdictionId].expiresAt;
         _attestations[msg.sender][jurisdictionId] = attestation;
         _proofIndex[proofHash] = attestation;
+        _proofTypes[proofHash] = proofType;
         _attestationHistory[msg.sender][jurisdictionId].push(proofHash);
 
         emit ComplianceVerified(msg.sender, jurisdictionId, true, proofHash, attestation.expiresAt, previousExpiresAt);
@@ -153,6 +158,12 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
     function getHistoricalProof(bytes32 proofHash) external view returns (ComplianceAttestation memory attestation) {
         attestation = _proofIndex[proofHash];
         if (attestation.timestamp == 0) revert AttestationNotFound(proofHash);
+    }
+
+    /// @inheritdoc IXochiZKPOracle
+    function getProofType(bytes32 proofHash) external view returns (uint8) {
+        if (_proofIndex[proofHash].timestamp == 0) revert AttestationNotFound(proofHash);
+        return _proofTypes[proofHash];
     }
 
     /// @inheritdoc IXochiZKPOracle
@@ -379,15 +390,18 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         //   [2]: config_hash
         //   [3]: timestamp
         //   [4]: meets_threshold
+        //   [5]: submitter
         bytes32 proofJurisdiction = bytes32(publicInputs[0:32]);
         bytes32 proofProviderSet = bytes32(publicInputs[32:64]);
         bytes32 proofConfigHash = bytes32(publicInputs[64:96]);
         bytes32 proofMeetsThreshold = bytes32(publicInputs[128:160]);
+        address proofSubmitter = address(uint160(uint256(bytes32(publicInputs[160:192]))));
 
         if (proofJurisdiction != bytes32(uint256(jurisdictionId))) revert PublicInputMismatch();
         if (proofProviderSet != providerSetHash) revert PublicInputMismatch();
         if (!_validConfigs[proofConfigHash]) revert InvalidConfigHash(proofConfigHash);
         if (proofMeetsThreshold != bytes32(uint256(1))) revert ProofResultNegative();
+        if (proofSubmitter != msg.sender) revert SubmitterMismatch();
     }
 
     /// @dev Validate that the config_hash in RISK_SCORE public inputs is a known config
@@ -401,10 +415,13 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         //   [4]: result
         //   [5]: config_hash
         //   [6]: provider_set_hash
+        //   [7]: submitter
         bytes32 proofResult = bytes32(publicInputs[128:160]);
         bytes32 proofConfigHash = bytes32(publicInputs[160:192]);
+        address proofSubmitter = address(uint160(uint256(bytes32(publicInputs[224:256]))));
         if (proofResult != bytes32(uint256(1))) revert ProofResultNegative();
         if (!_validConfigs[proofConfigHash]) revert InvalidConfigHash(proofConfigHash);
+        if (proofSubmitter != msg.sender) revert SubmitterMismatch();
     }
 
     /// @dev Validate PATTERN public inputs.

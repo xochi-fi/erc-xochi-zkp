@@ -3,6 +3,7 @@ pragma solidity ^0.8.28;
 
 import {ISettlementRegistry} from "./interfaces/ISettlementRegistry.sol";
 import {IXochiZKPOracle} from "./interfaces/IXochiZKPOracle.sol";
+import {ProofTypes} from "./libraries/ProofTypes.sol";
 
 /// @title SettlementRegistry -- Links sub-settlement compliance proofs to a trade identifier
 /// @notice Immutable contract (no owner, no pause) that tracks multi-leg trade settlements.
@@ -101,20 +102,18 @@ contract SettlementRegistry is ISettlementRegistry {
             revert TradeNotComplete(tradeId, settlement.settledCount, settlement.subTradeCount);
         }
 
-        // Anti-structuring: verify a pattern detection proof exists for the subject.
-        // The registry verifies:
-        //   1. The attestation exists (timestamp > 0) -- handled by _fetchAttestation
-        //   2. The attestation subject matches the settlement subject
-        //   3. The attestation was created after trade registration
-        // Limitation: the registry cannot verify the proof type is PATTERN (0x03) from
-        // the attestation alone, as proofType is baked into proofHash but not stored
-        // separately. The caller is responsible for providing a valid pattern proof hash.
+        // Anti-structuring: verify a pattern detection proof (0x03) exists for the subject.
+        // Checks:
+        //   1. patternProofHash is not zero
+        //   2. The proof type is PATTERN (0x03) via oracle.getProofType()
+        //   3. The attestation exists and subject matches
+        //   4. The attestation was created after trade registration
         //
-        // Jurisdiction is intentionally not checked for pattern proofs. PATTERN proofs are
-        // jurisdiction-agnostic -- they analyze transaction patterns across all jurisdictions.
-        // The oracle's submitCompliance accepts a jurisdictionId for storage routing, but
-        // _validatePatternInputs does not enforce jurisdiction in the proof's public inputs.
+        // Jurisdiction is intentionally not checked. PATTERN proofs are jurisdiction-agnostic:
+        // they analyze transaction patterns, not jurisdiction-specific thresholds.
         if (patternProofHash == bytes32(0)) revert PatternProofRequired(tradeId);
+        uint8 proofType = oracle.getProofType(patternProofHash);
+        if (proofType != ProofTypes.PATTERN) revert PatternProofRequired(tradeId);
         IXochiZKPOracle.ComplianceAttestation memory patternAttestation = _fetchAttestation(patternProofHash);
         if (patternAttestation.subject != settlement.subject) {
             revert SubjectMismatch(settlement.subject, patternAttestation.subject);

@@ -78,6 +78,11 @@ interface IXochiZKPOracle {
     /// @return attestation The original attestation record
     function getHistoricalProof(bytes32 proofHash) external view returns (ComplianceAttestation memory attestation);
 
+    /// @notice Get the proof type used to generate an attestation
+    /// @param proofHash The hash of the original proof
+    /// @return proofType The proof type identifier (see ProofTypes library)
+    function getProofType(bytes32 proofHash) external view returns (uint8 proofType);
+
     /// @notice Get all attestation hashes for a subject in a jurisdiction
     /// @param subject The address to query
     /// @param jurisdictionId The jurisdiction

@@ -405,6 +405,26 @@ contract SettlementRegistryTest is Test {
         registry.finalizeTrade(tradeId, patternProof);
     }
 
+    function test_finalizeTrade_revert_wrongProofType() public {
+        bytes32 tradeId = keccak256("trade-1");
+        vm.prank(alice);
+        registry.registerTrade(tradeId, 0, 2);
+
+        bytes32 proof1 = _submitComplianceForAlice(0);
+        bytes32 proof2 = _submitComplianceForAlice(0);
+        vm.startPrank(alice);
+        registry.recordSubSettlement(tradeId, 0, proof1);
+        registry.recordSubSettlement(tradeId, 1, proof2);
+        vm.stopPrank();
+
+        // Try to use a COMPLIANCE proof (not PATTERN) as the pattern proof
+        bytes32 complianceProof = _submitComplianceForAlice(0);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(ISettlementRegistry.PatternProofRequired.selector, tradeId));
+        registry.finalizeTrade(tradeId, complianceProof);
+    }
+
     function test_finalizeTrade_revert_notSubject() public {
         bytes32 tradeId = keccak256("trade-1");
         vm.prank(alice);

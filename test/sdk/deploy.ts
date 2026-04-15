@@ -47,8 +47,10 @@ export const FIXTURE_HASHES = {
 export interface DeployedContracts {
   verifier: Address;
   oracle: Address;
+  registry: Address;
   verifierAbi: unknown[];
   oracleAbi: unknown[];
+  registryAbi: unknown[];
 }
 
 function readForgeArtifact(solidityFile: string, contractName: string) {
@@ -218,10 +220,27 @@ export async function deployContracts(): Promise<DeployedContracts> {
     ],
   });
 
+  // Deploy SettlementRegistry
+  const registryArtifact = readForgeArtifact(
+    "SettlementRegistry.sol",
+    "SettlementRegistry",
+  );
+  const registryHash = await walletClient.deployContract({
+    abi: registryArtifact.abi,
+    bytecode: registryArtifact.bytecode,
+    args: [oracleAddress],
+  });
+  const registryReceipt = await publicClient.waitForTransactionReceipt({
+    hash: registryHash,
+  });
+  const registryAddress = registryReceipt.contractAddress!;
+
   return {
     verifier: verifierAddress,
     oracle: oracleAddress,
+    registry: registryAddress,
     verifierAbi: verifierArtifact.abi,
     oracleAbi: oracleArtifact.abi,
+    registryAbi: registryArtifact.abi,
   };
 }

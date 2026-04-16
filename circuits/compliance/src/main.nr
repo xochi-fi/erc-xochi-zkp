@@ -12,6 +12,7 @@
 ///   - config_hash: hash of the published weight configuration
 ///   - timestamp: block timestamp binding the proof
 ///   - meets_threshold: boolean result (1 = compliant, 0 = not)
+///   - submitter: address of the authorized proof submitter (anti-frontrun)
 ///
 /// Private inputs (known only to prover):
 ///   - signals: risk scores from each screening provider (0-100)
@@ -43,6 +44,7 @@ fn main(
     config_hash: pub Field,      // hash of the weight config version
     timestamp: pub Field,        // block.timestamp for temporal binding
     meets_threshold: pub bool,   // the compliance result
+    submitter: pub Field,        // authorized submitter address (oracle enforces == msg.sender)
 ) {
     // 1. Validate provider count
     assert(num_providers >= 1, "At least one provider required");
@@ -91,6 +93,10 @@ fn main(
 
     // 10. Timestamp must be within reasonable bounds
     validate_timestamp(timestamp);
+
+    // 11. Anchor submitter as a public input (oracle enforces submitter == msg.sender).
+    // Non-zero check prevents the compiler from stripping this public input.
+    assert(submitter != 0, "submitter must be non-zero");
 }
 
 // ---------------------------------------------------------------------------
@@ -156,6 +162,7 @@ fn test_main_compliant_single_provider() {
         config_hash,
         1700000000, // timestamp
         true, // meets_threshold
+        0xdead, // submitter (no circuit constraint, oracle enforces)
     );
 }
 
@@ -178,6 +185,7 @@ fn test_main_non_compliant_high_risk() {
         config_hash,
         1700000000,
         false, // does not meet threshold
+        0xdead,
     );
 }
 
@@ -202,6 +210,7 @@ fn test_main_multi_provider_all_jurisdictions() {
             config_hash,
             1700000000,
             true,
+            0xdead,
         );
     }
 }
@@ -225,6 +234,7 @@ fn test_score_at_exact_threshold_boundary() {
         config_hash,
         1700000000,
         false,
+        0xdead,
     );
 }
 
@@ -247,5 +257,6 @@ fn test_score_just_below_threshold() {
         config_hash,
         1700000000,
         true,
+        0xdead,
     );
 }

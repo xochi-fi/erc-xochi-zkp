@@ -101,11 +101,11 @@ contract XochiZKPVerifierTest is Test {
     }
 
     function test_verifyProof_revert_wrongPublicInputCount() public {
-        // Compliance expects 5 inputs, give it 3
+        // Compliance expects 6 inputs, give it 3
         bytes memory badInputs = abi.encodePacked(bytes32(uint256(1)), bytes32(uint256(2)), bytes32(uint256(3)));
 
         vm.expectRevert(
-            abi.encodeWithSelector(ProofTypes.InvalidPublicInputLength.selector, ProofTypes.COMPLIANCE, 5, 3)
+            abi.encodeWithSelector(ProofTypes.InvalidPublicInputLength.selector, ProofTypes.COMPLIANCE, 6, 3)
         );
         verifier.verifyProof(ProofTypes.COMPLIANCE, _dummyProof(), badInputs);
     }
@@ -367,15 +367,15 @@ contract XochiZKPVerifierTest is Test {
     // -------------------------------------------------------------------------
 
     function test_verifyProof_revert_unalignedPublicInputs() public {
-        bytes memory unaligned = new bytes(161); // 5*32 + 1
-        vm.expectRevert(abi.encodeWithSelector(ProofTypes.UnalignedPublicInputs.selector, 161));
+        bytes memory unaligned = new bytes(193); // 6*32 + 1
+        vm.expectRevert(abi.encodeWithSelector(ProofTypes.UnalignedPublicInputs.selector, 193));
         verifier.verifyProof(ProofTypes.COMPLIANCE, _dummyProof(), unaligned);
     }
 
     function testFuzz_verifyProof_revert_unalignedPublicInputs(uint256 extra) public {
         extra = bound(extra, 1, 31);
-        bytes memory unaligned = new bytes(5 * 32 + extra);
-        vm.expectRevert(abi.encodeWithSelector(ProofTypes.UnalignedPublicInputs.selector, 5 * 32 + extra));
+        bytes memory unaligned = new bytes(6 * 32 + extra);
+        vm.expectRevert(abi.encodeWithSelector(ProofTypes.UnalignedPublicInputs.selector, 6 * 32 + extra));
         verifier.verifyProof(ProofTypes.COMPLIANCE, _dummyProof(), unaligned);
     }
 
@@ -490,18 +490,19 @@ contract XochiZKPVerifierTest is Test {
         return new bytes(2144);
     }
 
-    /// @dev 5 public inputs: jurisdiction_id, provider_set_hash, config_hash, timestamp, meets_threshold
+    /// @dev 6 public inputs: jurisdiction_id, provider_set_hash, config_hash, timestamp, meets_threshold, submitter
     function _complianceInputs() internal pure returns (bytes memory) {
         return abi.encodePacked(
             bytes32(uint256(0)), // jurisdiction_id: EU
             bytes32(uint256(0xaabb)), // provider_set_hash
             bytes32(uint256(0xccdd)), // config_hash
             bytes32(uint256(1700000)), // timestamp
-            bytes32(uint256(1)) // meets_threshold: true
+            bytes32(uint256(1)), // meets_threshold: true
+            bytes32(uint256(0xdead)) // submitter
         );
     }
 
-    /// @dev 7 public inputs: proof_type, direction, bound_lower, bound_upper, result, config_hash, provider_set_hash
+    /// @dev 8 public inputs: proof_type, direction, bound_lower, bound_upper, result, config_hash, provider_set_hash, submitter
     function _riskScoreInputs() internal pure returns (bytes memory) {
         return abi.encodePacked(
             bytes32(uint256(1)), // proof_type: threshold
@@ -510,7 +511,8 @@ contract XochiZKPVerifierTest is Test {
             bytes32(uint256(0)), // bound_upper (unused for threshold)
             bytes32(uint256(1)), // result: true
             bytes32(uint256(0xccdd)), // config_hash
-            bytes32(uint256(0xeeff)) // provider_set_hash
+            bytes32(uint256(0xeeff)), // provider_set_hash
+            bytes32(uint256(0xdead)) // submitter
         );
     }
 

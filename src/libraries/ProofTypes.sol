@@ -21,10 +21,10 @@ library ProofTypes {
     /// @param proofType The proof type identifier (0x01-0x06)
     /// @return count Number of bytes32 public inputs expected
     function expectedPublicInputCount(uint8 proofType) internal pure returns (uint256 count) {
-        // compliance: jurisdiction_id, provider_set_hash, config_hash, timestamp, meets_threshold
-        if (proofType == COMPLIANCE) return 5;
-        // risk_score: proof_type, direction, bound_lower, bound_upper, result, config_hash, provider_set_hash
-        if (proofType == RISK_SCORE) return 7;
+        // compliance: jurisdiction_id, provider_set_hash, config_hash, timestamp, meets_threshold, submitter
+        if (proofType == COMPLIANCE) return 6;
+        // risk_score: proof_type, direction, bound_lower, bound_upper, result, config_hash, provider_set_hash, submitter
+        if (proofType == RISK_SCORE) return 8;
         // pattern: analysis_type, result, reporting_threshold, time_window, tx_set_hash
         if (proofType == PATTERN) return 5;
         // attestation: provider_id, credential_type, is_valid, merkle_root, current_timestamp

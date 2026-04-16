@@ -1,4 +1,4 @@
-.PHONY: build test test-sol test-noir test-sdk test-all fmt fmt-check lint snapshot fixtures clean help
+.PHONY: build test test-sol test-noir test-sdk test-xochi-sdk test-all fmt fmt-check lint snapshot fixtures clean help
 
 FOUNDRY_BIN := $(HOME)/.config/.foundry/bin
 FORGE := $(FOUNDRY_BIN)/forge
@@ -33,6 +33,9 @@ test-noir: ## Run all Noir circuit tests
 
 test-sdk: ## Run TS consumer SDK tests (noir_js + bb.js + anvil)
 	npm run test:sdk
+
+test-xochi-sdk: ## Run @xochi/sdk cross-repo anvil tests only
+	npx vitest run test/sdk/xochi-sdk.test.ts
 
 test-all: test-sol test-noir test-sdk ## Run all tests
 

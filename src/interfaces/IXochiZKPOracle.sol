@@ -96,6 +96,21 @@ interface IXochiZKPOracle {
     /// @return configHash Hash of current provider weights
     function providerConfigHash() external view returns (bytes32 configHash);
 
+    /// @notice Submit a batch of compliance proofs atomically
+    /// @param jurisdictionId Target jurisdiction for all entries (0=EU, 1=US, 2=UK, 3=SG)
+    /// @param proofTypes The proof type for each entry (0x01-0x06)
+    /// @param proofs The ZK proof data for each entry
+    /// @param publicInputs Public inputs for each entry
+    /// @param providerSetHashes Provider set hash for each entry
+    /// @return attestations The recorded compliance attestations
+    function submitComplianceBatch(
+        uint8 jurisdictionId,
+        uint8[] calldata proofTypes,
+        bytes[] calldata proofs,
+        bytes[] calldata publicInputs,
+        bytes32[] calldata providerSetHashes
+    ) external returns (ComplianceAttestation[] memory attestations);
+
     /// @notice Get the current attestation time-to-live
     /// @return ttl Duration in seconds that attestations remain valid
     function attestationTTL() external view returns (uint256 ttl);

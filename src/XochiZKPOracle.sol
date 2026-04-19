@@ -69,9 +69,15 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
     error ConfigAlreadyCurrent();
     error AlreadyRegistered();
     error NotRegistered();
+    error BatchLengthMismatch();
+    error EmptyBatch();
+    error BatchTooLarge();
 
     /// @notice Maximum number of entries in the config history array
     uint256 public constant MAX_CONFIG_HISTORY = 256;
+
+    /// @notice Maximum number of proofs in a single batch submission
+    uint256 public constant MAX_BATCH_SIZE = 100;
 
     /// @param _verifier The XochiZKPVerifier contract address
     /// @param initialOwner The initial owner address
@@ -140,6 +146,34 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         _attestationHistory[msg.sender][jurisdictionId].push(proofHash);
 
         emit ComplianceVerified(msg.sender, jurisdictionId, true, proofHash, attestation.expiresAt, previousExpiresAt);
+    }
+
+    /// @inheritdoc IXochiZKPOracle
+    function submitComplianceBatch(
+        uint8 jurisdictionId,
+        uint8[] calldata proofTypes,
+        bytes[] calldata proofs,
+        bytes[] calldata publicInputs,
+        bytes32[] calldata providerSetHashes
+    ) external whenNotPaused returns (ComplianceAttestation[] memory attestations) {
+        uint256 length = proofTypes.length;
+        if (length == 0) revert EmptyBatch();
+        if (length > MAX_BATCH_SIZE) revert BatchTooLarge();
+        if (length != proofs.length || length != publicInputs.length || length != providerSetHashes.length) {
+            revert BatchLengthMismatch();
+        }
+
+        JurisdictionConfig.validateJurisdiction(jurisdictionId);
+
+        attestations = new ComplianceAttestation[](length);
+
+        for (uint256 i; i < length;) {
+            attestations[i] =
+                _submitSingle(jurisdictionId, proofTypes[i], proofs[i], publicInputs[i], providerSetHashes[i]);
+            unchecked {
+                ++i;
+            }
+        }
     }
 
     /// @inheritdoc IXochiZKPOracle
@@ -336,6 +370,46 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
     // -------------------------------------------------------------------------
     // Internal
     // -------------------------------------------------------------------------
+
+    /// @dev Process a single entry in a batch (or standalone) submission.
+    ///      Extracted to avoid stack-too-deep in the batch loop.
+    function _submitSingle(
+        uint8 jurisdictionId,
+        uint8 proofType,
+        bytes calldata proof,
+        bytes calldata inputs,
+        bytes32 providerSetHash
+    ) internal returns (ComplianceAttestation memory attestation) {
+        if (proofType == ProofTypes.COMPLIANCE) {
+            _validateComplianceInputs(jurisdictionId, providerSetHash, inputs);
+        } else if (proofType == ProofTypes.RISK_SCORE) {
+            _validateRiskScoreInputs(inputs);
+        } else if (proofType == ProofTypes.PATTERN) {
+            _validatePatternInputs(inputs);
+        } else if (proofType == ProofTypes.ATTESTATION) {
+            _validateAttestationInputs(inputs);
+        } else if (proofType == ProofTypes.MEMBERSHIP) {
+            _validateMembershipInputs(inputs);
+        } else if (proofType == ProofTypes.NON_MEMBERSHIP) {
+            _validateNonMembershipInputs(inputs);
+        } else {
+            revert ProofTypes.InvalidProofType(proofType);
+        }
+
+        (address verifierUsed, bytes32 proofHash) = _verifyAndRecordProof(proofType, proof, inputs);
+
+        bytes32 effectiveProviderSetHash = proofType == ProofTypes.COMPLIANCE ? providerSetHash : bytes32(0);
+        attestation =
+            _buildAttestation(jurisdictionId, proofHash, effectiveProviderSetHash, keccak256(inputs), verifierUsed);
+
+        uint256 previousExpiresAt = _attestations[msg.sender][jurisdictionId].expiresAt;
+        _attestations[msg.sender][jurisdictionId] = attestation;
+        _proofIndex[proofHash] = attestation;
+        _proofTypes[proofHash] = proofType;
+        _attestationHistory[msg.sender][jurisdictionId].push(proofHash);
+
+        emit ComplianceVerified(msg.sender, jurisdictionId, true, proofHash, attestation.expiresAt, previousExpiresAt);
+    }
 
     /// @dev Verify the ZK proof and record replay protection.
     ///      Resolves verifier address once to eliminate TOCTOU.

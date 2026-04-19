@@ -45,7 +45,8 @@ contract Handler is Test {
             DEFAULT_PROVIDER_SET_HASH,
             oracle.providerConfigHash(),
             bytes32(uint256(1700000)),
-            bytes32(uint256(1))
+            bytes32(uint256(1)),
+            bytes32(uint256(uint160(address(this)))) // submitter = this handler
         );
 
         bytes32 proofHash = keccak256(abi.encodePacked(proof, ProofTypes.COMPLIANCE));

@@ -17,6 +17,12 @@ contract AlwaysPassVerifier is IUltraVerifier {
     }
 }
 
+contract AlwaysFailVerifier is IUltraVerifier {
+    function verify(bytes calldata, bytes32[] calldata) external pure returns (bool) {
+        return false;
+    }
+}
+
 contract XochiZKPOracleTest is Test {
     XochiZKPOracle internal oracle;
     XochiZKPVerifier internal verifier;
@@ -485,7 +491,8 @@ contract XochiZKPOracleTest is Test {
             DEFAULT_PROVIDER_SET_HASH, // provider_set_hash
             bytes32(uint256(0xdead)), // config_hash (not registered)
             bytes32(uint256(1700000)), // timestamp
-            bytes32(uint256(1)) // meets_threshold
+            bytes32(uint256(1)), // meets_threshold
+            bytes32(uint256(uint160(alice))) // submitter
         );
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(XochiZKPOracle.InvalidConfigHash.selector, bytes32(uint256(0xdead))));
@@ -597,12 +604,12 @@ contract XochiZKPOracleTest is Test {
     // -------------------------------------------------------------------------
 
     function test_submitCompliance_revert_nonAlignedPublicInputs() public {
-        // 161 bytes = 5*32 + 1 -- extra trailing byte
+        // 193 bytes = 6*32 + 1 -- extra trailing byte
         // Build valid compliance inputs then append one byte
         bytes memory aligned = _complianceInputs();
         bytes memory unaligned = abi.encodePacked(aligned, uint8(0xff));
         vm.prank(alice);
-        vm.expectRevert(abi.encodeWithSelector(ProofTypes.UnalignedPublicInputs.selector, 161));
+        vm.expectRevert(abi.encodeWithSelector(ProofTypes.UnalignedPublicInputs.selector, 193));
         oracle.submitCompliance(0, ProofTypes.COMPLIANCE, _uniqueProof(), unaligned, DEFAULT_PROVIDER_SET_HASH);
     }
 
@@ -667,7 +674,8 @@ contract XochiZKPOracleTest is Test {
             DEFAULT_PROVIDER_SET_HASH, // provider_set_hash
             INITIAL_CONFIG, // config_hash
             bytes32(uint256(1700000)), // timestamp
-            bytes32(uint256(0)) // meets_threshold = false
+            bytes32(uint256(0)), // meets_threshold = false
+            bytes32(uint256(uint160(alice))) // submitter
         );
         vm.prank(alice);
         vm.expectRevert(XochiZKPOracle.ProofResultNegative.selector);
@@ -683,7 +691,8 @@ contract XochiZKPOracleTest is Test {
             bytes32(uint256(0)), // bound_upper
             bytes32(uint256(0)), // result = false
             INITIAL_CONFIG, // config_hash
-            bytes32(uint256(0xeeff)) // provider_set_hash
+            bytes32(uint256(0xeeff)), // provider_set_hash
+            bytes32(uint256(uint160(alice))) // submitter
         );
         vm.prank(alice);
         vm.expectRevert(XochiZKPOracle.ProofResultNegative.selector);
@@ -1300,7 +1309,8 @@ contract XochiZKPOracleTest is Test {
                 DEFAULT_PROVIDER_SET_HASH,
                 INITIAL_CONFIG,
                 bytes32(uint256(1700000)),
-                bytes32(uint256(0)) // meets_threshold = 0
+                bytes32(uint256(0)), // meets_threshold = 0
+                bytes32(uint256(uint160(alice))) // submitter
             );
         } else if (proofType == ProofTypes.RISK_SCORE) {
             publicInputs = abi.encodePacked(
@@ -1310,7 +1320,8 @@ contract XochiZKPOracleTest is Test {
                 bytes32(uint256(0)),
                 bytes32(uint256(0)),
                 INITIAL_CONFIG, // result = 0
-                bytes32(uint256(0xeeff)) // provider_set_hash
+                bytes32(uint256(0xeeff)), // provider_set_hash
+                bytes32(uint256(uint160(alice))) // submitter
             );
         } else if (proofType == ProofTypes.PATTERN) {
             publicInputs = abi.encodePacked(
@@ -1372,6 +1383,229 @@ contract XochiZKPOracleTest is Test {
     }
 
     // -------------------------------------------------------------------------
+    // submitComplianceBatch
+    // -------------------------------------------------------------------------
+
+    function test_submitComplianceBatch_recordsAllAttestations() public {
+        bytes memory proof1 = _uniqueProof();
+        bytes memory proof2 = _uniqueProof();
+        bytes memory proof3 = _uniqueProof();
+
+        uint8[] memory proofTypes = new uint8[](3);
+        proofTypes[0] = ProofTypes.COMPLIANCE;
+        proofTypes[1] = ProofTypes.COMPLIANCE;
+        proofTypes[2] = ProofTypes.COMPLIANCE;
+
+        bytes[] memory proofs = new bytes[](3);
+        proofs[0] = proof1;
+        proofs[1] = proof2;
+        proofs[2] = proof3;
+
+        bytes[] memory inputs = new bytes[](3);
+        inputs[0] = _complianceInputs();
+        inputs[1] = _complianceInputs();
+        inputs[2] = _complianceInputs();
+
+        bytes32[] memory hashes = new bytes32[](3);
+        hashes[0] = DEFAULT_PROVIDER_SET_HASH;
+        hashes[1] = DEFAULT_PROVIDER_SET_HASH;
+        hashes[2] = DEFAULT_PROVIDER_SET_HASH;
+
+        vm.prank(alice);
+        IXochiZKPOracle.ComplianceAttestation[] memory atts =
+            oracle.submitComplianceBatch(0, proofTypes, proofs, inputs, hashes);
+
+        assertEq(atts.length, 3);
+        for (uint256 i; i < 3; i++) {
+            assertEq(atts[i].subject, alice);
+            assertEq(atts[i].jurisdictionId, 0);
+            assertTrue(atts[i].meetsThreshold);
+
+            // Verify each is retrievable via getHistoricalProof
+            IXochiZKPOracle.ComplianceAttestation memory stored = oracle.getHistoricalProof(atts[i].proofHash);
+            assertEq(stored.subject, alice);
+            assertEq(stored.proofHash, atts[i].proofHash);
+        }
+    }
+
+    function test_submitComplianceBatch_emitsEventsPerEntry() public {
+        bytes memory proof1 = _uniqueProof();
+        bytes memory proof2 = _uniqueProof();
+        bytes memory proof3 = _uniqueProof();
+
+        uint8[] memory proofTypes = new uint8[](3);
+        proofTypes[0] = ProofTypes.COMPLIANCE;
+        proofTypes[1] = ProofTypes.COMPLIANCE;
+        proofTypes[2] = ProofTypes.COMPLIANCE;
+
+        bytes[] memory proofs = new bytes[](3);
+        proofs[0] = proof1;
+        proofs[1] = proof2;
+        proofs[2] = proof3;
+
+        bytes[] memory inputs = new bytes[](3);
+        inputs[0] = _complianceInputs();
+        inputs[1] = _complianceInputs();
+        inputs[2] = _complianceInputs();
+
+        bytes32[] memory hashes = new bytes32[](3);
+        hashes[0] = DEFAULT_PROVIDER_SET_HASH;
+        hashes[1] = DEFAULT_PROVIDER_SET_HASH;
+        hashes[2] = DEFAULT_PROVIDER_SET_HASH;
+
+        vm.prank(alice);
+        vm.recordLogs();
+        oracle.submitComplianceBatch(0, proofTypes, proofs, inputs, hashes);
+
+        Vm.Log[] memory entries = vm.getRecordedLogs();
+        uint256 complianceVerifiedCount;
+        bytes32 eventSig = keccak256("ComplianceVerified(address,uint8,bool,bytes32,uint256,uint256)");
+        for (uint256 i; i < entries.length; i++) {
+            if (entries[i].topics[0] == eventSig) {
+                complianceVerifiedCount++;
+            }
+        }
+        assertEq(complianceVerifiedCount, 3);
+    }
+
+    function test_submitComplianceBatch_revert_arrayLengthMismatch() public {
+        uint8[] memory proofTypes = new uint8[](2);
+        bytes[] memory proofs = new bytes[](3);
+        bytes[] memory inputs = new bytes[](2);
+        bytes32[] memory hashes = new bytes32[](2);
+
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.BatchLengthMismatch.selector);
+        oracle.submitComplianceBatch(0, proofTypes, proofs, inputs, hashes);
+    }
+
+    function test_submitComplianceBatch_revert_exceedsMaxBatchSize() public {
+        uint256 size = 101;
+        uint8[] memory proofTypes = new uint8[](size);
+        bytes[] memory proofs = new bytes[](size);
+        bytes[] memory inputs = new bytes[](size);
+        bytes32[] memory hashes = new bytes32[](size);
+
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.BatchTooLarge.selector);
+        oracle.submitComplianceBatch(0, proofTypes, proofs, inputs, hashes);
+    }
+
+    function test_submitComplianceBatch_revert_replayInBatch() public {
+        bytes memory proof = _uniqueProof();
+
+        uint8[] memory proofTypes = new uint8[](2);
+        proofTypes[0] = ProofTypes.COMPLIANCE;
+        proofTypes[1] = ProofTypes.COMPLIANCE;
+
+        bytes[] memory proofs = new bytes[](2);
+        proofs[0] = proof;
+        proofs[1] = proof; // same proof
+
+        bytes[] memory inputs = new bytes[](2);
+        inputs[0] = _complianceInputs();
+        inputs[1] = _complianceInputs();
+
+        bytes32[] memory hashes = new bytes32[](2);
+        hashes[0] = DEFAULT_PROVIDER_SET_HASH;
+        hashes[1] = DEFAULT_PROVIDER_SET_HASH;
+
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                XochiZKPOracle.ProofAlreadyUsed.selector, keccak256(abi.encodePacked(proof, ProofTypes.COMPLIANCE))
+            )
+        );
+        oracle.submitComplianceBatch(0, proofTypes, proofs, inputs, hashes);
+    }
+
+    function test_submitComplianceBatch_revert_anyProofFails() public {
+        // Deploy a verifier that always fails
+        AlwaysFailVerifier failVerifier = new AlwaysFailVerifier();
+        vm.prank(owner);
+        verifier.setVerifier(ProofTypes.RISK_SCORE, address(failVerifier));
+
+        uint8[] memory proofTypes = new uint8[](2);
+        proofTypes[0] = ProofTypes.COMPLIANCE;
+        proofTypes[1] = ProofTypes.RISK_SCORE; // will fail verification
+
+        bytes[] memory proofs = new bytes[](2);
+        proofs[0] = _uniqueProof();
+        proofs[1] = _uniqueProof();
+
+        bytes[] memory inputs = new bytes[](2);
+        inputs[0] = _complianceInputs();
+        inputs[1] = _riskScoreInputs(INITIAL_CONFIG);
+
+        bytes32[] memory hashes = new bytes32[](2);
+        hashes[0] = DEFAULT_PROVIDER_SET_HASH;
+        hashes[1] = bytes32(0);
+
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.ProofVerificationFailed.selector);
+        oracle.submitComplianceBatch(0, proofTypes, proofs, inputs, hashes);
+    }
+
+    function test_submitComplianceBatch_mixedProofTypes() public {
+        uint8[] memory proofTypes = new uint8[](2);
+        proofTypes[0] = ProofTypes.COMPLIANCE;
+        proofTypes[1] = ProofTypes.RISK_SCORE;
+
+        bytes[] memory proofs = new bytes[](2);
+        proofs[0] = _uniqueProof();
+        proofs[1] = _uniqueProof();
+
+        bytes[] memory inputs = new bytes[](2);
+        inputs[0] = _complianceInputs();
+        inputs[1] = _riskScoreInputs(INITIAL_CONFIG);
+
+        bytes32[] memory hashes = new bytes32[](2);
+        hashes[0] = DEFAULT_PROVIDER_SET_HASH;
+        hashes[1] = bytes32(0);
+
+        vm.prank(alice);
+        IXochiZKPOracle.ComplianceAttestation[] memory atts =
+            oracle.submitComplianceBatch(0, proofTypes, proofs, inputs, hashes);
+
+        assertEq(atts.length, 2);
+        // First is COMPLIANCE
+        assertEq(oracle.getProofType(atts[0].proofHash), ProofTypes.COMPLIANCE);
+        assertEq(atts[0].providerSetHash, DEFAULT_PROVIDER_SET_HASH);
+        // Second is RISK_SCORE
+        assertEq(oracle.getProofType(atts[1].proofHash), ProofTypes.RISK_SCORE);
+        assertEq(atts[1].providerSetHash, bytes32(0)); // zeroed for non-COMPLIANCE
+    }
+
+    function test_submitComplianceBatch_revert_emptyBatch() public {
+        uint8[] memory proofTypes = new uint8[](0);
+        bytes[] memory proofs = new bytes[](0);
+        bytes[] memory inputs = new bytes[](0);
+        bytes32[] memory hashes = new bytes32[](0);
+
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.EmptyBatch.selector);
+        oracle.submitComplianceBatch(0, proofTypes, proofs, inputs, hashes);
+    }
+
+    function test_submitComplianceBatch_revert_whenPaused() public {
+        vm.prank(owner);
+        oracle.pause();
+
+        uint8[] memory proofTypes = new uint8[](1);
+        proofTypes[0] = ProofTypes.COMPLIANCE;
+        bytes[] memory proofs = new bytes[](1);
+        proofs[0] = _uniqueProof();
+        bytes[] memory inputs = new bytes[](1);
+        inputs[0] = _complianceInputs();
+        bytes32[] memory hashes = new bytes32[](1);
+        hashes[0] = DEFAULT_PROVIDER_SET_HASH;
+
+        vm.prank(alice);
+        vm.expectRevert(Pausable.ContractPaused.selector);
+        oracle.submitComplianceBatch(0, proofTypes, proofs, inputs, hashes);
+    }
+
+    // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
 
@@ -1408,24 +1642,39 @@ contract XochiZKPOracleTest is Test {
     /// @dev Default provider set hash used in tests (must match public inputs)
     bytes32 internal constant DEFAULT_PROVIDER_SET_HASH = bytes32(uint256(0xaabb));
 
-    /// @dev 5 public inputs matching the compliance circuit
-    function _complianceInputs() internal pure returns (bytes memory) {
-        return _complianceInputsFor(0, DEFAULT_PROVIDER_SET_HASH);
+    /// @dev 6 public inputs matching the compliance circuit
+    function _complianceInputs() internal view returns (bytes memory) {
+        return _complianceInputsFor(0, DEFAULT_PROVIDER_SET_HASH, alice);
     }
 
     /// @dev Compliance inputs with configurable jurisdiction and providerSetHash
-    function _complianceInputsFor(uint8 jurisdictionId, bytes32 providerSetHash) internal pure returns (bytes memory) {
+    function _complianceInputsFor(uint8 jurisdictionId, bytes32 providerSetHash) internal view returns (bytes memory) {
+        return _complianceInputsFor(jurisdictionId, providerSetHash, alice);
+    }
+
+    /// @dev Compliance inputs with configurable jurisdiction, providerSetHash, and submitter
+    function _complianceInputsFor(uint8 jurisdictionId, bytes32 providerSetHash, address submitter)
+        internal
+        pure
+        returns (bytes memory)
+    {
         return abi.encodePacked(
             bytes32(uint256(jurisdictionId)), // jurisdiction_id
             providerSetHash, // provider_set_hash
             INITIAL_CONFIG, // config_hash
             bytes32(uint256(1700000)), // timestamp
-            bytes32(uint256(1)) // meets_threshold
+            bytes32(uint256(1)), // meets_threshold
+            bytes32(uint256(uint160(submitter))) // submitter
         );
     }
 
     /// @dev RISK_SCORE public inputs with configurable config hash
-    function _riskScoreInputs(bytes32 configHash) internal pure returns (bytes memory) {
+    function _riskScoreInputs(bytes32 configHash) internal view returns (bytes memory) {
+        return _riskScoreInputs(configHash, alice);
+    }
+
+    /// @dev RISK_SCORE public inputs with configurable config hash and submitter
+    function _riskScoreInputs(bytes32 configHash, address submitter) internal pure returns (bytes memory) {
         return abi.encodePacked(
             bytes32(uint256(1)), // proof_type: threshold
             bytes32(uint256(1)), // direction: GT
@@ -1433,7 +1682,8 @@ contract XochiZKPOracleTest is Test {
             bytes32(uint256(0)), // bound_upper
             bytes32(uint256(1)), // result
             configHash, // config_hash
-            bytes32(uint256(0xeeff)) // provider_set_hash
+            bytes32(uint256(0xeeff)), // provider_set_hash
+            bytes32(uint256(uint160(submitter))) // submitter
         );
     }
 

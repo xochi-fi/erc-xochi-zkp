@@ -47,6 +47,7 @@ cd circuits/<name> && nargo test           # run a single circuit's tests
 ## Circuit Structure
 
 Nargo workspace at `circuits/Nargo.toml`. Each proof type is a separate Noir project:
+
 - `circuits/shared/`: shared library split into modules (hash, merkle, risk, providers, constants)
 - `circuits/compliance/`: main compliance proof (jurisdiction-aware risk score check)
 - `circuits/risk_score/`: standalone risk score proof (threshold GT/LT, range)
@@ -63,11 +64,11 @@ supports GT/LT/range). This is intentional composition, not duplication.
 ## Proof Types
 
 Circuit names match Solidity `ProofTypes` constants 1:1. Public input counts below are
-*logical* inputs (what the circuit's `main()` declares as `pub`). The generated UltraHonk
+_logical_ inputs (what the circuit's `main()` declares as `pub`). The generated UltraHonk
 verifiers see more inputs because Noir flattens arrays into individual field elements.
 
 | ID   | ProofType      | Circuit        | Logical Public Inputs |
-|------|----------------|----------------|-----------------------|
+| ---- | -------------- | -------------- | --------------------- |
 | 0x01 | COMPLIANCE     | compliance     | 5                     |
 | 0x02 | RISK_SCORE     | risk_score     | 7                     |
 | 0x03 | PATTERN        | pattern        | 5                     |
@@ -99,6 +100,7 @@ Admin functions: `registerMerkleRoot`, `revokeMerkleRoot`, `registerReportingThr
 ## TypeScript SDK Test
 
 `test/sdk/` contains a standalone TS consumer test validating the integrator path:
+
 - Loads compiled circuit JSON from `circuits/{name}/target/`
 - Generates proofs via `@noir-lang/noir_js` + `@aztec/bb.js` (UltraHonk, `verifierTarget: 'evm'`)
 - Deploys contracts to anvil, verifies proofs on-chain

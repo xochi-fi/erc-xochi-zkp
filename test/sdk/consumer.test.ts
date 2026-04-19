@@ -28,6 +28,7 @@ import {
   ANVIL_RPC,
   ALICE_KEY,
   ALICE_ADDRESS,
+  DEPLOYER_KEY,
 } from "./anvil";
 import {
   deployContracts,
@@ -133,18 +134,23 @@ const COMPLIANCE_INPUTS = {
   config_hash: FIXTURE_HASHES.CONFIG_HASH,
   timestamp: "1700000000",
   meets_threshold: true,
+  submitter: ALICE_ADDRESS,
 };
 
 const RISK_SCORE_GT_INPUTS = {
   signals: [55, 0, 0, 0, 0, 0, 0, 0],
   weights: [100, 0, 0, 0, 0, 0, 0, 0],
   weight_sum: 100,
+  provider_ids: ["1", "0", "0", "0", "0", "0", "0", "0"],
+  num_providers: 1,
   proof_type: 1, // threshold
   direction: 1, // GT
   bound_lower: 4000,
   bound_upper: 0,
   result: true, // 55*100/100 = 5500 bps > 4000
   config_hash: FIXTURE_HASHES.CONFIG_HASH,
+  provider_set_hash: FIXTURE_HASHES.PROVIDER_SET_HASH,
+  submitter: ALICE_ADDRESS,
 };
 
 const MEMBERSHIP_INPUTS = {
@@ -234,8 +240,8 @@ describe("SDK layer (no chain)", () => {
       );
 
       expect(proofHex.length).toBeGreaterThan(2);
-      // 5 public inputs: jurisdiction_id, provider_set_hash, config_hash, timestamp, meets_threshold
-      expect(publicInputs).toHaveLength(5);
+      // 6 public inputs: jurisdiction_id, provider_set_hash, config_hash, timestamp, meets_threshold, submitter
+      expect(publicInputs).toHaveLength(6);
     });
 
     it("generates proof for different jurisdiction (US)", async () => {
@@ -244,7 +250,7 @@ describe("SDK layer (no chain)", () => {
         { ...COMPLIANCE_INPUTS, jurisdiction_id: 1 },
         api,
       );
-      expect(publicInputs).toHaveLength(5);
+      expect(publicInputs).toHaveLength(6);
     });
 
     it("rejects when score exceeds threshold but meets_threshold=true", async () => {
@@ -285,8 +291,8 @@ describe("SDK layer (no chain)", () => {
         RISK_SCORE_GT_INPUTS,
         api,
       );
-      // 6 public inputs: proof_type, direction, bound_lower, bound_upper, result, config_hash
-      expect(publicInputs).toHaveLength(6);
+      // 8 public inputs: proof_type, direction, bound_lower, bound_upper, result, config_hash, provider_set_hash, submitter
+      expect(publicInputs).toHaveLength(8);
     });
 
     it("threshold proof: score < bound (LT)", async () => {
@@ -302,7 +308,7 @@ describe("SDK layer (no chain)", () => {
         },
         api,
       );
-      expect(publicInputs).toHaveLength(6);
+      expect(publicInputs).toHaveLength(8);
     });
 
     it("range proof: score in [lower, upper]", async () => {
@@ -318,7 +324,7 @@ describe("SDK layer (no chain)", () => {
         },
         api,
       );
-      expect(publicInputs).toHaveLength(6);
+      expect(publicInputs).toHaveLength(8);
     });
 
     it("rejects contradictory result", async () => {
@@ -435,6 +441,7 @@ describe("E2E on-chain verification", () => {
   let api: Barretenberg;
 
   const alice = privateKeyToAccount(ALICE_KEY);
+  const deployer = privateKeyToAccount(DEPLOYER_KEY);
 
   const publicClient = createPublicClient({
     chain: foundry,
@@ -442,6 +449,11 @@ describe("E2E on-chain verification", () => {
   });
   const aliceClient = createWalletClient({
     account: alice,
+    chain: foundry,
+    transport: http(ANVIL_RPC),
+  });
+  const deployerClient = createWalletClient({
+    account: deployer,
     chain: foundry,
     transport: http(ANVIL_RPC),
   });
@@ -663,6 +675,31 @@ describe("E2E on-chain verification", () => {
         args: [ALICE_ADDRESS, 1],
       })) as [boolean, unknown];
       expect(valid).toBe(true);
+    });
+
+    it("rejects proof when submitter != msg.sender (anti-frontrun)", async () => {
+      // Proof is bound to alice as the submitter
+      const { proofHex, publicInputsHex } = await generateProof(
+        "compliance",
+        COMPLIANCE_INPUTS,
+        api,
+      );
+
+      // Deployer (not alice) tries to submit alice's proof -- oracle must reject
+      await expect(
+        deployerClient.writeContract({
+          address: contracts.oracle,
+          abi: contracts.oracleAbi,
+          functionName: "submitCompliance",
+          args: [
+            0,
+            PROOF_TYPES.COMPLIANCE,
+            proofHex,
+            publicInputsHex,
+            FIXTURE_HASHES.PROVIDER_SET_HASH,
+          ],
+        }),
+      ).rejects.toThrow();
     });
   });
 

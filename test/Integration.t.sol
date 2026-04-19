@@ -17,6 +17,10 @@ contract IntegrationTest is Test {
     address internal owner = makeAddr("owner");
     address internal alice = makeAddr("alice");
 
+    /// @dev Address baked into compliance/risk_score proof fixtures as the submitter.
+    ///      Oracle enforces submitter == msg.sender, so oracle tests must prank as this address.
+    address internal constant FIXTURE_SUBMITTER = address(0xdead);
+
     /// @dev Must match the config_hash baked into the compliance proof fixture.
     ///      This is pedersen_hash([100, 0, 0, 0, 0, 0, 0, 0]) -- the weight config
     ///      used in the test witness (single provider, weight=100).
@@ -85,7 +89,7 @@ contract IntegrationTest is Test {
     function test_realProof_compliance_submitAndCheck() public {
         (bytes memory proof, bytes memory publicInputs) = _loadFixture("compliance");
 
-        vm.prank(alice);
+        vm.prank(FIXTURE_SUBMITTER);
         IXochiZKPOracle.ComplianceAttestation memory att = oracle.submitCompliance(
             0, // jurisdiction EU (matches fixture)
             ProofTypes.COMPLIANCE,
@@ -94,30 +98,30 @@ contract IntegrationTest is Test {
             FIXTURE_PROVIDER_SET_HASH
         );
 
-        assertEq(att.subject, alice);
+        assertEq(att.subject, FIXTURE_SUBMITTER);
         assertEq(att.jurisdictionId, 0);
         assertTrue(att.meetsThreshold);
         assertEq(att.providerSetHash, FIXTURE_PROVIDER_SET_HASH);
         assertEq(att.verifierUsed, verifier.getVerifier(ProofTypes.COMPLIANCE));
 
         // checkCompliance should return valid
-        (bool valid,) = oracle.checkCompliance(alice, 0);
+        (bool valid,) = oracle.checkCompliance(FIXTURE_SUBMITTER, 0);
         assertTrue(valid);
 
         // Historical proof should be retrievable
         IXochiZKPOracle.ComplianceAttestation memory historical =
             oracle.getHistoricalProof(keccak256(abi.encodePacked(proof, ProofTypes.COMPLIANCE)));
-        assertEq(historical.subject, alice);
+        assertEq(historical.subject, FIXTURE_SUBMITTER);
     }
 
     function test_realProof_compliance_replayReverts() public {
         (bytes memory proof, bytes memory publicInputs) = _loadFixture("compliance");
 
-        vm.prank(alice);
+        vm.prank(FIXTURE_SUBMITTER);
         oracle.submitCompliance(0, ProofTypes.COMPLIANCE, proof, publicInputs, FIXTURE_PROVIDER_SET_HASH);
 
         // Same proof should be rejected
-        vm.prank(alice);
+        vm.prank(FIXTURE_SUBMITTER);
         vm.expectRevert(
             abi.encodeWithSelector(
                 XochiZKPOracle.ProofAlreadyUsed.selector, keccak256(abi.encodePacked(proof, ProofTypes.COMPLIANCE))
@@ -130,7 +134,7 @@ contract IntegrationTest is Test {
         (bytes memory proof, bytes memory publicInputs) = _loadFixture("compliance");
 
         // Fixture has jurisdiction_id=0 (EU), try submitting as US (1)
-        vm.prank(alice);
+        vm.prank(FIXTURE_SUBMITTER);
         vm.expectRevert(XochiZKPOracle.PublicInputMismatch.selector);
         oracle.submitCompliance(1, ProofTypes.COMPLIANCE, proof, publicInputs, FIXTURE_PROVIDER_SET_HASH);
     }
@@ -142,7 +146,7 @@ contract IntegrationTest is Test {
         proof[42] = proof[42] ^ 0xff;
 
         // Corrupted proof should revert (verifier reverts on invalid proofs)
-        vm.prank(alice);
+        vm.prank(FIXTURE_SUBMITTER);
         vm.expectRevert();
         oracle.submitCompliance(0, ProofTypes.COMPLIANCE, proof, publicInputs, FIXTURE_PROVIDER_SET_HASH);
     }
@@ -159,10 +163,10 @@ contract IntegrationTest is Test {
 
     function test_realProof_riskScore_submitAndCheck() public {
         (bytes memory proof, bytes memory publicInputs) = _loadFixture("risk_score");
-        vm.prank(alice);
+        vm.prank(FIXTURE_SUBMITTER);
         IXochiZKPOracle.ComplianceAttestation memory att =
             oracle.submitCompliance(0, ProofTypes.RISK_SCORE, proof, publicInputs, bytes32(0));
-        assertEq(att.subject, alice);
+        assertEq(att.subject, FIXTURE_SUBMITTER);
         assertTrue(att.meetsThreshold);
     }
 

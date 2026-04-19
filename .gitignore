@@ -4,6 +4,7 @@ cache/
 broadcast/
 
 # Noir
+circuits/target/
 circuits/*/target/
 circuits/shared/target/
 

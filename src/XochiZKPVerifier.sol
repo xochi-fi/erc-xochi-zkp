@@ -21,6 +21,9 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
     /// @notice Pending verifier proposals per proof type
     mapping(uint8 proofType => VerifierProposal proposal) internal _pendingVerifiers;
 
+    /// @notice Revoked verifier versions (cannot be used via verifyProofAtVersion)
+    mapping(uint8 proofType => mapping(uint256 version => bool revoked)) internal _revokedVersions;
+
     struct VerifierProposal {
         address newVerifier;
         uint256 proposedAt;
@@ -32,6 +35,9 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
     error TimelockNotElapsed(uint8 proofType, uint256 readyAt);
     error NoPendingProposal(uint8 proofType);
     error ProposalAlreadyPending(uint8 proofType);
+    error VersionRevoked(uint8 proofType, uint256 version);
+    error CannotRevokeCurrentVersion(uint8 proofType);
+    error AlreadyRevoked(uint8 proofType, uint256 version);
     error BatchLengthMismatch();
     error EmptyBatch();
     error BatchTooLarge();
@@ -45,6 +51,7 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
     event VerifierUpdated(uint8 indexed proofType, address indexed oldVerifier, address indexed newVerifier);
     event VerifierProposed(uint8 indexed proofType, address indexed newVerifier, uint256 readyAt);
     event VerifierProposalCancelled(uint8 indexed proofType, address indexed cancelledVerifier);
+    event VerifierVersionRevoked(uint8 indexed proofType, uint256 indexed version, address indexed verifier);
 
     constructor(address initialOwner) {
         if (initialOwner == address(0)) revert ZeroAddress();
@@ -101,6 +108,7 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
         whenNotPaused
         returns (bool valid)
     {
+        if (_revokedVersions[proofType][version]) revert VersionRevoked(proofType, version);
         address verifier = _getVerifierAtVersion(proofType, version);
         ProofTypes.validatePublicInputs(proofType, publicInputs);
         bytes32[] memory inputs = ProofTypes.decodePublicInputs(publicInputs);
@@ -185,6 +193,29 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
         VerifierProposal memory proposal = _pendingVerifiers[proofType];
         if (proposal.proposedAt == 0) return (address(0), 0);
         return (proposal.newVerifier, proposal.proposedAt + VERIFIER_TIMELOCK);
+    }
+
+    /// @notice Revoke a historical verifier version so it cannot be used via verifyProofAtVersion
+    /// @dev Emergency action -- no timelock. Cannot revoke the current (latest) version;
+    ///      use proposeVerifier + executeVerifierUpdate to replace it instead.
+    /// @param proofType The proof type (0x01-0x06)
+    /// @param version The version to revoke (1-indexed)
+    function revokeVerifierVersion(uint8 proofType, uint256 version) external onlyOwner {
+        address[] storage history = _verifierHistory[proofType];
+        if (version == 0 || version > history.length) revert InvalidVersion(proofType, version);
+        if (version == history.length) revert CannotRevokeCurrentVersion(proofType);
+        if (_revokedVersions[proofType][version]) revert AlreadyRevoked(proofType, version);
+
+        _revokedVersions[proofType][version] = true;
+        emit VerifierVersionRevoked(proofType, version, history[version - 1]);
+    }
+
+    /// @notice Check if a verifier version has been revoked
+    /// @param proofType The proof type (0x01-0x06)
+    /// @param version The version to check (1-indexed)
+    /// @return revoked Whether the version has been revoked
+    function isVersionRevoked(uint8 proofType, uint256 version) external view returns (bool revoked) {
+        return _revokedVersions[proofType][version];
     }
 
     /// @notice Pause the contract, blocking proof verification

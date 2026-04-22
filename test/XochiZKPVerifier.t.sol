@@ -441,6 +441,78 @@ contract XochiZKPVerifierTest is Test {
     }
 
     // -------------------------------------------------------------------------
+    // Verifier version revocation
+    // -------------------------------------------------------------------------
+
+    function test_revokeVerifierVersion() public {
+        // Upgrade to v2 so v1 can be revoked
+        _upgradeVerifier(ProofTypes.COMPLIANCE, address(failingVerifier));
+
+        // v1 works before revocation
+        assertTrue(verifier.verifyProofAtVersion(ProofTypes.COMPLIANCE, 1, _dummyProof(), _complianceInputs()));
+
+        // Revoke v1
+        vm.prank(owner);
+        verifier.revokeVerifierVersion(ProofTypes.COMPLIANCE, 1);
+        assertTrue(verifier.isVersionRevoked(ProofTypes.COMPLIANCE, 1));
+
+        // v1 is now blocked
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPVerifier.VersionRevoked.selector, ProofTypes.COMPLIANCE, 1));
+        verifier.verifyProofAtVersion(ProofTypes.COMPLIANCE, 1, _dummyProof(), _complianceInputs());
+    }
+
+    function test_revokeVerifierVersion_emitsEvent() public {
+        _upgradeVerifier(ProofTypes.COMPLIANCE, address(failingVerifier));
+
+        vm.prank(owner);
+        vm.expectEmit(true, true, true, true);
+        emit XochiZKPVerifier.VerifierVersionRevoked(ProofTypes.COMPLIANCE, 1, address(passingVerifier));
+        verifier.revokeVerifierVersion(ProofTypes.COMPLIANCE, 1);
+    }
+
+    function test_revokeVerifierVersion_revert_currentVersion() public {
+        // Only v1 exists, can't revoke current
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(XochiZKPVerifier.CannotRevokeCurrentVersion.selector, ProofTypes.COMPLIANCE)
+        );
+        verifier.revokeVerifierVersion(ProofTypes.COMPLIANCE, 1);
+    }
+
+    function test_revokeVerifierVersion_revert_alreadyRevoked() public {
+        _upgradeVerifier(ProofTypes.COMPLIANCE, address(failingVerifier));
+
+        vm.prank(owner);
+        verifier.revokeVerifierVersion(ProofTypes.COMPLIANCE, 1);
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPVerifier.AlreadyRevoked.selector, ProofTypes.COMPLIANCE, 1));
+        verifier.revokeVerifierVersion(ProofTypes.COMPLIANCE, 1);
+    }
+
+    function test_revokeVerifierVersion_revert_invalidVersion() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPVerifier.InvalidVersion.selector, ProofTypes.COMPLIANCE, 0));
+        verifier.revokeVerifierVersion(ProofTypes.COMPLIANCE, 0);
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPVerifier.InvalidVersion.selector, ProofTypes.COMPLIANCE, 99));
+        verifier.revokeVerifierVersion(ProofTypes.COMPLIANCE, 99);
+    }
+
+    function test_revokeVerifierVersion_revert_notOwner() public {
+        _upgradeVerifier(ProofTypes.COMPLIANCE, address(failingVerifier));
+
+        vm.prank(alice);
+        vm.expectRevert(Ownable2Step.Unauthorized.selector);
+        verifier.revokeVerifierVersion(ProofTypes.COMPLIANCE, 1);
+    }
+
+    function test_isVersionRevoked_falseByDefault() public view {
+        assertFalse(verifier.isVersionRevoked(ProofTypes.COMPLIANCE, 1));
+    }
+
+    // -------------------------------------------------------------------------
     // Fuzz: proof type validation
     // -------------------------------------------------------------------------
 

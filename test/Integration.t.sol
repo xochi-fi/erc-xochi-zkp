@@ -73,6 +73,10 @@ contract IntegrationTest is Test {
         oracle.registerReportingThreshold(bytes32(uint256(10000)));
 
         vm.stopPrank();
+
+        // Warp to the timestamp baked into proof fixtures so staleness checks pass.
+        // All Prover.toml files use timestamp = 1700000000.
+        vm.warp(1700000000);
     }
 
     // -------------------------------------------------------------------------
@@ -182,10 +186,10 @@ contract IntegrationTest is Test {
 
     function test_realProof_pattern_submitAndCheck() public {
         (bytes memory proof, bytes memory publicInputs) = _loadFixture("pattern");
-        vm.prank(alice);
+        vm.prank(FIXTURE_SUBMITTER);
         IXochiZKPOracle.ComplianceAttestation memory att =
             oracle.submitCompliance(0, ProofTypes.PATTERN, proof, publicInputs, bytes32(0));
-        assertEq(att.subject, alice);
+        assertEq(att.subject, FIXTURE_SUBMITTER);
         assertTrue(att.meetsThreshold);
     }
 
@@ -201,10 +205,10 @@ contract IntegrationTest is Test {
 
     function test_realProof_attestation_submitAndCheck() public {
         (bytes memory proof, bytes memory publicInputs) = _loadFixture("attestation");
-        vm.prank(alice);
+        vm.prank(FIXTURE_SUBMITTER);
         IXochiZKPOracle.ComplianceAttestation memory att =
             oracle.submitCompliance(0, ProofTypes.ATTESTATION, proof, publicInputs, bytes32(0));
-        assertEq(att.subject, alice);
+        assertEq(att.subject, FIXTURE_SUBMITTER);
         assertTrue(att.meetsThreshold);
     }
 
@@ -220,10 +224,10 @@ contract IntegrationTest is Test {
 
     function test_realProof_membership_submitAndCheck() public {
         (bytes memory proof, bytes memory publicInputs) = _loadFixture("membership");
-        vm.prank(alice);
+        vm.prank(FIXTURE_SUBMITTER);
         IXochiZKPOracle.ComplianceAttestation memory att =
             oracle.submitCompliance(0, ProofTypes.MEMBERSHIP, proof, publicInputs, bytes32(0));
-        assertEq(att.subject, alice);
+        assertEq(att.subject, FIXTURE_SUBMITTER);
         assertTrue(att.meetsThreshold);
     }
 
@@ -239,10 +243,10 @@ contract IntegrationTest is Test {
 
     function test_realProof_nonMembership_submitAndCheck() public {
         (bytes memory proof, bytes memory publicInputs) = _loadFixture("non_membership");
-        vm.prank(alice);
+        vm.prank(FIXTURE_SUBMITTER);
         IXochiZKPOracle.ComplianceAttestation memory att =
             oracle.submitCompliance(0, ProofTypes.NON_MEMBERSHIP, proof, publicInputs, bytes32(0));
-        assertEq(att.subject, alice);
+        assertEq(att.subject, FIXTURE_SUBMITTER);
         assertTrue(att.meetsThreshold);
     }
 

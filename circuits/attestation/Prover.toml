@@ -10,3 +10,4 @@ credential_type = 1
 is_valid = true
 merkle_root = "0x15861259068f1398397423d4b3bad764e19c1a68699115ef9ccd090a8a5eba3e"
 current_timestamp = 1700000000
+submitter = "0xdead"

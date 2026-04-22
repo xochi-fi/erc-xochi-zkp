@@ -69,12 +69,12 @@ verifiers see more inputs because Noir flattens arrays into individual field ele
 
 | ID   | ProofType      | Circuit        | Logical Public Inputs |
 | ---- | -------------- | -------------- | --------------------- |
-| 0x01 | COMPLIANCE     | compliance     | 5                     |
-| 0x02 | RISK_SCORE     | risk_score     | 7                     |
-| 0x03 | PATTERN        | pattern        | 5                     |
-| 0x04 | ATTESTATION    | attestation    | 5                     |
-| 0x05 | MEMBERSHIP     | membership     | 4                     |
-| 0x06 | NON_MEMBERSHIP | non_membership | 4                     |
+| 0x01 | COMPLIANCE     | compliance     | 6                     |
+| 0x02 | RISK_SCORE     | risk_score     | 8                     |
+| 0x03 | PATTERN        | pattern        | 6                     |
+| 0x04 | ATTESTATION    | attestation    | 6                     |
+| 0x05 | MEMBERSHIP     | membership     | 5                     |
+| 0x06 | NON_MEMBERSHIP | non_membership | 5                     |
 
 ## Conventions
 

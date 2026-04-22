@@ -40,7 +40,7 @@ contract XochiZKPOracleTest is Test {
         stubVerifier = new AlwaysPassVerifier();
         vm.startPrank(owner);
         for (uint8 i = ProofTypes.COMPLIANCE; i <= ProofTypes.NON_MEMBERSHIP; i++) {
-            verifier.setVerifier(i, address(stubVerifier));
+            verifier.setVerifierInitial(i, address(stubVerifier));
         }
         // Register default reporting threshold for PATTERN tests
         oracle.registerReportingThreshold(bytes32(uint256(10000)));
@@ -82,6 +82,7 @@ contract XochiZKPOracleTest is Test {
 
         assertEq(att.subject, alice);
         assertEq(att.jurisdictionId, 0);
+        assertEq(att.proofType, ProofTypes.COMPLIANCE);
         assertTrue(att.meetsThreshold);
         assertEq(att.timestamp, block.timestamp);
         assertEq(att.expiresAt, block.timestamp + 24 hours);
@@ -164,6 +165,36 @@ contract XochiZKPOracleTest is Test {
 
         (bool valid,) = oracle.checkCompliance(alice, 1); // US
         assertFalse(valid);
+    }
+
+    // -------------------------------------------------------------------------
+    // checkComplianceByType
+    // -------------------------------------------------------------------------
+
+    function test_checkComplianceByType_matches() public {
+        _submitForAlice(0);
+
+        (bool valid, IXochiZKPOracle.ComplianceAttestation memory att) =
+            oracle.checkComplianceByType(alice, 0, ProofTypes.COMPLIANCE);
+        assertTrue(valid);
+        assertEq(att.proofType, ProofTypes.COMPLIANCE);
+    }
+
+    function test_checkComplianceByType_mismatch() public {
+        _submitForAlice(0); // submits COMPLIANCE
+
+        (bool valid,) = oracle.checkComplianceByType(alice, 0, ProofTypes.RISK_SCORE);
+        assertFalse(valid);
+    }
+
+    function test_checkComplianceByType_riskScore() public {
+        vm.prank(alice);
+        oracle.submitCompliance(0, ProofTypes.RISK_SCORE, _uniqueProof(), _riskScoreInputs(INITIAL_CONFIG), bytes32(0));
+
+        (bool valid, IXochiZKPOracle.ComplianceAttestation memory att) =
+            oracle.checkComplianceByType(alice, 0, ProofTypes.RISK_SCORE);
+        assertTrue(valid);
+        assertEq(att.proofType, ProofTypes.RISK_SCORE);
     }
 
     // -------------------------------------------------------------------------
@@ -461,10 +492,13 @@ contract XochiZKPOracleTest is Test {
         IXochiZKPOracle.ComplianceAttestation memory att1 =
             oracle.submitCompliance(0, ProofTypes.COMPLIANCE, proof1, _complianceInputs(), DEFAULT_PROVIDER_SET_HASH);
 
-        // Upgrade verifier
+        // Upgrade verifier via timelock
         AlwaysPassVerifier newStub = new AlwaysPassVerifier();
         vm.prank(owner);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, address(newStub));
+        verifier.proposeVerifier(ProofTypes.COMPLIANCE, address(newStub));
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(owner);
+        verifier.executeVerifierUpdate(ProofTypes.COMPLIANCE);
 
         // Submit with new verifier
         bytes memory proof2 = _uniqueProof();
@@ -528,7 +562,8 @@ contract XochiZKPOracleTest is Test {
             bytes32(uint256(1)), // result
             bytes32(uint256(10000)), // reporting_threshold
             bytes32(uint256(86400)), // time_window
-            bytes32(uint256(0xabcd)) // tx_set_hash
+            bytes32(uint256(0xabcd)), // tx_set_hash
+            bytes32(uint256(uint160(alice))) // submitter
         );
         vm.prank(alice);
         IXochiZKPOracle.ComplianceAttestation memory att =
@@ -656,7 +691,8 @@ contract XochiZKPOracleTest is Test {
             bytes32(uint256(1)), // result
             bytes32(uint256(10000)), // reporting_threshold
             bytes32(uint256(86400)), // time_window
-            bytes32(uint256(0)) // tx_set_hash = 0 (invalid)
+            bytes32(uint256(0)), // tx_set_hash = 0 (invalid)
+            bytes32(uint256(uint160(alice))) // submitter
         );
         vm.prank(alice);
         vm.expectRevert(XochiZKPOracle.PublicInputMismatch.selector);
@@ -706,7 +742,8 @@ contract XochiZKPOracleTest is Test {
             bytes32(uint256(0)), // result = false (structuring detected)
             bytes32(uint256(10000)), // reporting_threshold
             bytes32(uint256(86400)), // time_window
-            bytes32(uint256(0xabcd)) // tx_set_hash
+            bytes32(uint256(0xabcd)), // tx_set_hash
+            bytes32(uint256(uint160(alice))) // submitter
         );
         vm.prank(alice);
         vm.expectRevert(XochiZKPOracle.ProofResultNegative.selector);
@@ -724,7 +761,8 @@ contract XochiZKPOracleTest is Test {
             bytes32(uint256(1)), // credential_type
             bytes32(uint256(0)), // is_valid = false
             root, // merkle_root
-            bytes32(uint256(1700000)) // current_timestamp
+            bytes32(block.timestamp), // current_timestamp
+            bytes32(uint256(uint160(alice))) // submitter
         );
         vm.prank(alice);
         vm.expectRevert(XochiZKPOracle.ProofResultNegative.selector);
@@ -740,8 +778,9 @@ contract XochiZKPOracleTest is Test {
         bytes memory publicInputs = abi.encodePacked(
             root, // merkle_root
             bytes32(uint256(1)), // set_id
-            bytes32(uint256(1700000)), // timestamp
-            bytes32(uint256(0)) // is_member = false
+            bytes32(block.timestamp), // timestamp
+            bytes32(uint256(0)), // is_member = false
+            bytes32(uint256(uint160(alice))) // submitter
         );
         vm.prank(alice);
         vm.expectRevert(XochiZKPOracle.ProofResultNegative.selector);
@@ -757,8 +796,9 @@ contract XochiZKPOracleTest is Test {
         bytes memory publicInputs = abi.encodePacked(
             root, // merkle_root
             bytes32(uint256(1)), // set_id
-            bytes32(uint256(1700000)), // timestamp
-            bytes32(uint256(0)) // is_non_member = false
+            bytes32(block.timestamp), // timestamp
+            bytes32(uint256(0)), // is_non_member = false
+            bytes32(uint256(uint160(alice))) // submitter
         );
         vm.prank(alice);
         vm.expectRevert(XochiZKPOracle.ProofResultNegative.selector);
@@ -784,7 +824,8 @@ contract XochiZKPOracleTest is Test {
             bytes32(uint256(1)), // result
             bytes32(uint256(10000)), // reporting_threshold
             bytes32(uint256(86400)), // time_window
-            bytes32(uint256(0xabcd)) // tx_set_hash
+            bytes32(uint256(0xabcd)), // tx_set_hash
+            bytes32(uint256(uint160(alice))) // submitter
         );
         vm.prank(alice);
         oracle.submitCompliance(0, ProofTypes.PATTERN, proof, patternInputs, bytes32(0));
@@ -879,13 +920,117 @@ contract XochiZKPOracleTest is Test {
             bytes32(uint256(1)), // result
             bytes32(uint256(99999)), // reporting_threshold (not registered)
             bytes32(uint256(86400)), // time_window
-            bytes32(uint256(0xabcd)) // tx_set_hash
+            bytes32(uint256(0xabcd)), // tx_set_hash
+            bytes32(uint256(uint160(alice))) // submitter
         );
         vm.prank(alice);
         vm.expectRevert(
             abi.encodeWithSelector(XochiZKPOracle.InvalidReportingThreshold.selector, bytes32(uint256(99999)))
         );
         oracle.submitCompliance(0, ProofTypes.PATTERN, _uniqueProof(), publicInputs, bytes32(0));
+    }
+
+    function test_submitCompliance_patternProof_revert_timeWindowTooSmall() public {
+        bytes memory publicInputs = abi.encodePacked(
+            bytes32(uint256(1)), // analysis_type
+            bytes32(uint256(1)), // result
+            bytes32(uint256(10000)), // reporting_threshold
+            bytes32(uint256(1)), // time_window = 1 second (too small)
+            bytes32(uint256(0xabcd)), // tx_set_hash
+            bytes32(uint256(uint160(alice))) // submitter
+        );
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPOracle.TimeWindowTooSmall.selector, 1, 3600));
+        oracle.submitCompliance(0, ProofTypes.PATTERN, _uniqueProof(), publicInputs, bytes32(0));
+    }
+
+    function test_submitCompliance_patternProof_exactMinTimeWindow() public {
+        bytes memory publicInputs = abi.encodePacked(
+            bytes32(uint256(1)), // analysis_type
+            bytes32(uint256(1)), // result
+            bytes32(uint256(10000)), // reporting_threshold
+            bytes32(uint256(3600)), // time_window = exactly MIN_TIME_WINDOW
+            bytes32(uint256(0xabcd)), // tx_set_hash
+            bytes32(uint256(uint160(alice))) // submitter
+        );
+        vm.prank(alice);
+        IXochiZKPOracle.ComplianceAttestation memory att =
+            oracle.submitCompliance(0, ProofTypes.PATTERN, _uniqueProof(), publicInputs, bytes32(0));
+        assertEq(att.subject, alice);
+    }
+
+    // -------------------------------------------------------------------------
+    // Timestamp staleness
+    // -------------------------------------------------------------------------
+
+    function test_submitCompliance_revert_staleComplianceTimestamp() public {
+        vm.warp(1700000000);
+        bytes memory publicInputs = abi.encodePacked(
+            bytes32(uint256(0)), // jurisdiction_id
+            DEFAULT_PROVIDER_SET_HASH,
+            INITIAL_CONFIG,
+            bytes32(uint256(1700000000 - 3601)), // timestamp: 1 second past MAX_PROOF_AGE
+            bytes32(uint256(1)), // meets_threshold
+            bytes32(uint256(uint160(alice))) // submitter
+        );
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(XochiZKPOracle.ProofTimestampStale.selector, 1700000000 - 3601, 1700000000)
+        );
+        oracle.submitCompliance(0, ProofTypes.COMPLIANCE, _uniqueProof(), publicInputs, DEFAULT_PROVIDER_SET_HASH);
+    }
+
+    function test_submitCompliance_revert_futureComplianceTimestamp() public {
+        vm.warp(1700000000);
+        bytes memory publicInputs = abi.encodePacked(
+            bytes32(uint256(0)),
+            DEFAULT_PROVIDER_SET_HASH,
+            INITIAL_CONFIG,
+            bytes32(uint256(1700000000 + 3601)), // timestamp: future, past MAX_PROOF_AGE
+            bytes32(uint256(1)),
+            bytes32(uint256(uint160(alice)))
+        );
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(XochiZKPOracle.ProofTimestampStale.selector, 1700000000 + 3601, 1700000000)
+        );
+        oracle.submitCompliance(0, ProofTypes.COMPLIANCE, _uniqueProof(), publicInputs, DEFAULT_PROVIDER_SET_HASH);
+    }
+
+    function test_submitCompliance_staleness_exactBoundary() public {
+        vm.warp(1700000000);
+        bytes memory publicInputs = abi.encodePacked(
+            bytes32(uint256(0)),
+            DEFAULT_PROVIDER_SET_HASH,
+            INITIAL_CONFIG,
+            bytes32(uint256(1700000000 - 3600)), // exactly at MAX_PROOF_AGE boundary
+            bytes32(uint256(1)),
+            bytes32(uint256(uint160(alice)))
+        );
+        vm.prank(alice);
+        IXochiZKPOracle.ComplianceAttestation memory att =
+            oracle.submitCompliance(0, ProofTypes.COMPLIANCE, _uniqueProof(), publicInputs, DEFAULT_PROVIDER_SET_HASH);
+        assertEq(att.subject, alice);
+    }
+
+    function test_submitCompliance_revert_staleMembershipTimestamp() public {
+        bytes32 root = bytes32(uint256(0xbeef));
+        vm.prank(owner);
+        oracle.registerMerkleRoot(root);
+
+        vm.warp(1700000000);
+        bytes memory publicInputs = abi.encodePacked(
+            root,
+            bytes32(uint256(1)),
+            bytes32(uint256(1700000000 - 3601)), // stale
+            bytes32(uint256(1)),
+            bytes32(uint256(uint160(alice)))
+        );
+        vm.prank(alice);
+        vm.expectRevert(
+            abi.encodeWithSelector(XochiZKPOracle.ProofTimestampStale.selector, 1700000000 - 3601, 1700000000)
+        );
+        oracle.submitCompliance(0, ProofTypes.MEMBERSHIP, _uniqueProof(), publicInputs, bytes32(0));
     }
 
     function test_registerReportingThreshold_revert_notOwner() public {
@@ -915,10 +1060,13 @@ contract XochiZKPOracleTest is Test {
         IXochiZKPOracle.ComplianceAttestation memory att1 =
             oracle.submitCompliance(0, ProofTypes.COMPLIANCE, proof1, _complianceInputs(), DEFAULT_PROVIDER_SET_HASH);
 
-        // Upgrade verifier mid-session
+        // Upgrade verifier mid-session via timelock
         AlwaysPassVerifier newStub = new AlwaysPassVerifier();
         vm.prank(owner);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, address(newStub));
+        verifier.proposeVerifier(ProofTypes.COMPLIANCE, address(newStub));
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(owner);
+        verifier.executeVerifierUpdate(ProofTypes.COMPLIANCE);
 
         bytes memory proof2 = _uniqueProof();
         vm.prank(alice);
@@ -986,7 +1134,8 @@ contract XochiZKPOracleTest is Test {
                 bytes32(uint256(1)),
                 bytes32(uint256(10000)),
                 bytes32(uint256(86400)),
-                bytes32(uint256(0xabcd))
+                bytes32(uint256(0xabcd)),
+                bytes32(uint256(uint160(alice)))
             );
         } else if (proofType == ProofTypes.ATTESTATION) {
             bytes32 root = bytes32(uint256(0xbeef));
@@ -1308,7 +1457,7 @@ contract XochiZKPOracleTest is Test {
                 bytes32(uint256(0)),
                 DEFAULT_PROVIDER_SET_HASH,
                 INITIAL_CONFIG,
-                bytes32(uint256(1700000)),
+                bytes32(block.timestamp),
                 bytes32(uint256(0)), // meets_threshold = 0
                 bytes32(uint256(uint160(alice))) // submitter
             );
@@ -1329,7 +1478,8 @@ contract XochiZKPOracleTest is Test {
                 bytes32(uint256(0)), // result = 0
                 bytes32(uint256(10000)),
                 bytes32(uint256(86400)),
-                bytes32(uint256(0xabcd))
+                bytes32(uint256(0xabcd)),
+                bytes32(uint256(uint160(alice))) // submitter
             );
         } else if (proofType == ProofTypes.ATTESTATION) {
             bytes32 root = bytes32(uint256(0xbeef));
@@ -1338,9 +1488,10 @@ contract XochiZKPOracleTest is Test {
             publicInputs = abi.encodePacked(
                 bytes32(uint256(42)),
                 bytes32(uint256(1)),
-                bytes32(uint256(0)),
+                bytes32(uint256(0)), // is_valid = 0
                 root,
-                bytes32(uint256(1700000)) // is_valid = 0
+                bytes32(block.timestamp),
+                bytes32(uint256(uint160(alice))) // submitter
             );
         } else if (proofType == ProofTypes.MEMBERSHIP) {
             bytes32 root = bytes32(uint256(0xbeef));
@@ -1349,8 +1500,9 @@ contract XochiZKPOracleTest is Test {
             publicInputs = abi.encodePacked(
                 root,
                 bytes32(uint256(1)),
-                bytes32(uint256(1700000)),
-                bytes32(uint256(0)) // is_member = 0
+                bytes32(block.timestamp),
+                bytes32(uint256(0)), // is_member = 0
+                bytes32(uint256(uint160(alice))) // submitter
             );
         } else {
             bytes32 root = bytes32(uint256(0xbeef));
@@ -1359,8 +1511,9 @@ contract XochiZKPOracleTest is Test {
             publicInputs = abi.encodePacked(
                 root,
                 bytes32(uint256(1)),
-                bytes32(uint256(1700000)),
-                bytes32(uint256(0)) // is_non_member = 0
+                bytes32(block.timestamp),
+                bytes32(uint256(0)), // is_non_member = 0
+                bytes32(uint256(uint160(alice))) // submitter
             );
         }
 
@@ -1520,10 +1673,13 @@ contract XochiZKPOracleTest is Test {
     }
 
     function test_submitComplianceBatch_revert_anyProofFails() public {
-        // Deploy a verifier that always fails
+        // Deploy a verifier that always fails, upgrade via timelock
         AlwaysFailVerifier failVerifier = new AlwaysFailVerifier();
         vm.prank(owner);
-        verifier.setVerifier(ProofTypes.RISK_SCORE, address(failVerifier));
+        verifier.proposeVerifier(ProofTypes.RISK_SCORE, address(failVerifier));
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(owner);
+        verifier.executeVerifierUpdate(ProofTypes.RISK_SCORE);
 
         uint8[] memory proofTypes = new uint8[](2);
         proofTypes[0] = ProofTypes.COMPLIANCE;
@@ -1655,14 +1811,14 @@ contract XochiZKPOracleTest is Test {
     /// @dev Compliance inputs with configurable jurisdiction, providerSetHash, and submitter
     function _complianceInputsFor(uint8 jurisdictionId, bytes32 providerSetHash, address submitter)
         internal
-        pure
+        view
         returns (bytes memory)
     {
         return abi.encodePacked(
             bytes32(uint256(jurisdictionId)), // jurisdiction_id
             providerSetHash, // provider_set_hash
             INITIAL_CONFIG, // config_hash
-            bytes32(uint256(1700000)), // timestamp
+            bytes32(block.timestamp), // timestamp
             bytes32(uint256(1)), // meets_threshold
             bytes32(uint256(uint160(submitter))) // submitter
         );
@@ -1688,33 +1844,51 @@ contract XochiZKPOracleTest is Test {
     }
 
     /// @dev MEMBERSHIP public inputs with configurable merkle root
-    function _membershipInputs(bytes32 merkleRoot) internal pure returns (bytes memory) {
+    function _membershipInputs(bytes32 merkleRoot) internal view returns (bytes memory) {
+        return _membershipInputs(merkleRoot, alice);
+    }
+
+    /// @dev MEMBERSHIP public inputs with configurable merkle root and submitter
+    function _membershipInputs(bytes32 merkleRoot, address submitter) internal view returns (bytes memory) {
         return abi.encodePacked(
             merkleRoot, // merkle_root
             bytes32(uint256(1)), // set_id
-            bytes32(uint256(1700000)), // timestamp
-            bytes32(uint256(1)) // is_member
+            bytes32(block.timestamp), // timestamp
+            bytes32(uint256(1)), // is_member
+            bytes32(uint256(uint160(submitter))) // submitter
         );
     }
 
     /// @dev NON_MEMBERSHIP public inputs with configurable merkle root
-    function _nonMembershipInputs(bytes32 merkleRoot) internal pure returns (bytes memory) {
+    function _nonMembershipInputs(bytes32 merkleRoot) internal view returns (bytes memory) {
+        return _nonMembershipInputs(merkleRoot, alice);
+    }
+
+    /// @dev NON_MEMBERSHIP public inputs with configurable merkle root and submitter
+    function _nonMembershipInputs(bytes32 merkleRoot, address submitter) internal view returns (bytes memory) {
         return abi.encodePacked(
             merkleRoot, // merkle_root
             bytes32(uint256(1)), // set_id
-            bytes32(uint256(1700000)), // timestamp
-            bytes32(uint256(1)) // is_non_member
+            bytes32(block.timestamp), // timestamp
+            bytes32(uint256(1)), // is_non_member
+            bytes32(uint256(uint160(submitter))) // submitter
         );
     }
 
     /// @dev ATTESTATION public inputs with configurable merkle root
-    function _attestationInputs(bytes32 merkleRoot) internal pure returns (bytes memory) {
+    function _attestationInputs(bytes32 merkleRoot) internal view returns (bytes memory) {
+        return _attestationInputs(merkleRoot, alice);
+    }
+
+    /// @dev ATTESTATION public inputs with configurable merkle root and submitter
+    function _attestationInputs(bytes32 merkleRoot, address submitter) internal view returns (bytes memory) {
         return abi.encodePacked(
             bytes32(uint256(42)), // provider_id
             bytes32(uint256(1)), // credential_type
             bytes32(uint256(1)), // is_valid
             merkleRoot, // merkle_root
-            bytes32(uint256(1700000)) // current_timestamp
+            bytes32(block.timestamp), // current_timestamp
+            bytes32(uint256(uint160(submitter))) // submitter
         );
     }
 }

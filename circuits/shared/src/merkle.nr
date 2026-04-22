@@ -16,11 +16,11 @@ pub fn compute_merkle_root<let DEPTH: u32>(
     index: Field,
     hash_path: [Field; DEPTH],
 ) -> Field {
-    let index_bits: [u1; DEPTH] = index.to_le_bits();
+    let index_bits: [bool; DEPTH] = index.to_le_bits();
     let mut current = leaf;
     for i in 0..DEPTH {
         let sibling = hash_path[i];
-        let (left, right) = if index_bits[i] == 0 {
+        let (left, right) = if !index_bits[i] {
             (current, sibling)
         } else {
             (sibling, current)

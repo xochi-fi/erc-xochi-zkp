@@ -11,3 +11,4 @@ merkle_root = "0x12d001bc3463cb4d3a745f802dffd80c00a2927f77110d1b0a59b9a3bd787b8
 set_id = "1"
 timestamp = "1700000000"
 is_non_member = true
+submitter = "0xdead"

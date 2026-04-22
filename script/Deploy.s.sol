@@ -61,7 +61,7 @@ contract Deploy is Script {
         }
         require(deployed != address(0), string.concat(contractName, " deployment failed"));
 
-        verifier.setVerifier(proofType, deployed);
+        verifier.setVerifierInitial(proofType, deployed);
         console.log(string.concat("  ", contractName, ":"), deployed);
     }
 

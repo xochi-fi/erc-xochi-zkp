@@ -61,7 +61,7 @@ contract IntegrationTest is Test {
         vm.startPrank(owner);
         for (uint256 i; i < 6; i++) {
             address v = _deployGeneratedVerifier(circuits[i]);
-            verifier.setVerifier(types[i], v);
+            verifier.setVerifierInitial(types[i], v);
         }
 
         // Register merkle roots needed by membership/non_membership/attestation fixtures

@@ -25,14 +25,14 @@ library ProofTypes {
         if (proofType == COMPLIANCE) return 6;
         // risk_score: proof_type, direction, bound_lower, bound_upper, result, config_hash, provider_set_hash, submitter
         if (proofType == RISK_SCORE) return 8;
-        // pattern: analysis_type, result, reporting_threshold, time_window, tx_set_hash
-        if (proofType == PATTERN) return 5;
-        // attestation: provider_id, credential_type, is_valid, merkle_root, current_timestamp
-        if (proofType == ATTESTATION) return 5;
-        // membership: merkle_root, set_id, timestamp, is_member
-        if (proofType == MEMBERSHIP) return 4;
-        // non_membership: merkle_root, set_id, timestamp, is_non_member
-        if (proofType == NON_MEMBERSHIP) return 4;
+        // pattern: analysis_type, result, reporting_threshold, time_window, tx_set_hash, submitter
+        if (proofType == PATTERN) return 6;
+        // attestation: provider_id, credential_type, is_valid, merkle_root, current_timestamp, submitter
+        if (proofType == ATTESTATION) return 6;
+        // membership: merkle_root, set_id, timestamp, is_member, submitter
+        if (proofType == MEMBERSHIP) return 5;
+        // non_membership: merkle_root, set_id, timestamp, is_non_member, submitter
+        if (proofType == NON_MEMBERSHIP) return 5;
         revert InvalidProofType(proofType);
     }
 

@@ -16,6 +16,7 @@
 ///   - is_valid: boolean result
 ///   - merkle_root: root of authorized providers tree
 ///   - current_timestamp: for expiry checking
+///   - submitter: address of the authorized proof submitter (anti-frontrun)
 ///
 /// Private inputs:
 ///   - credential_hash: hash of the full credential
@@ -44,7 +45,11 @@ fn main(
     is_valid: pub bool,
     merkle_root: pub Field,            // root of authorized providers tree
     current_timestamp: pub u64,
+    submitter: pub Field,               // authorized submitter address (oracle enforces == msg.sender)
 ) {
+    // 0. Anchor submitter as a public input (oracle enforces submitter == msg.sender).
+    assert(submitter != 0, "submitter must be non-zero");
+
     // 1. Verify the credential hash is correctly formed
     let computed_credential_hash = hash_credential(
         provider_id,
@@ -158,6 +163,7 @@ fn test_main_valid_credential() {
         true,   // is_valid
         root,
         current,
+        0xdead, // submitter
     );
 }
 
@@ -187,6 +193,7 @@ fn test_main_expired_credential() {
         false,  // expired -> not valid
         root,
         current,
+        0xdead,
     );
 }
 
@@ -216,6 +223,7 @@ fn test_credential_type_zero_invalid() {
         false,
         root,
         current,
+        0xdead,
     );
 }
 
@@ -245,6 +253,7 @@ fn test_credential_type_above_max_invalid() {
         false,
         root,
         current,
+        0xdead,
     );
 }
 
@@ -274,6 +283,7 @@ fn test_credential_type_boundary_institutional() {
         true,
         root,
         current,
+        0xdead,
     );
 }
 
@@ -303,5 +313,6 @@ fn test_expiry_exact_boundary() {
         false,
         root,
         current,
+        0xdead,
     );
 }

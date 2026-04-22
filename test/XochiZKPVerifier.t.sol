@@ -35,13 +35,22 @@ contract XochiZKPVerifierTest is Test {
         failingVerifier = new StubVerifier(false);
 
         vm.startPrank(owner);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, address(passingVerifier));
-        verifier.setVerifier(ProofTypes.RISK_SCORE, address(passingVerifier));
-        verifier.setVerifier(ProofTypes.PATTERN, address(passingVerifier));
-        verifier.setVerifier(ProofTypes.ATTESTATION, address(passingVerifier));
-        verifier.setVerifier(ProofTypes.MEMBERSHIP, address(passingVerifier));
-        verifier.setVerifier(ProofTypes.NON_MEMBERSHIP, address(passingVerifier));
+        verifier.setVerifierInitial(ProofTypes.COMPLIANCE, address(passingVerifier));
+        verifier.setVerifierInitial(ProofTypes.RISK_SCORE, address(passingVerifier));
+        verifier.setVerifierInitial(ProofTypes.PATTERN, address(passingVerifier));
+        verifier.setVerifierInitial(ProofTypes.ATTESTATION, address(passingVerifier));
+        verifier.setVerifierInitial(ProofTypes.MEMBERSHIP, address(passingVerifier));
+        verifier.setVerifierInitial(ProofTypes.NON_MEMBERSHIP, address(passingVerifier));
         vm.stopPrank();
+    }
+
+    /// @dev Upgrade a verifier via the timelock: propose, warp, execute
+    function _upgradeVerifier(uint8 proofType, address newVerifier) internal {
+        vm.prank(owner);
+        verifier.proposeVerifier(proofType, newVerifier);
+        vm.warp(block.timestamp + 24 hours);
+        vm.prank(owner);
+        verifier.executeVerifierUpdate(proofType);
     }
 
     // -------------------------------------------------------------------------
@@ -111,8 +120,7 @@ contract XochiZKPVerifierTest is Test {
     }
 
     function test_verifyProof_failingVerifier() public {
-        vm.prank(owner);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, address(failingVerifier));
+        _upgradeVerifier(ProofTypes.COMPLIANCE, address(failingVerifier));
 
         assertFalse(verifier.verifyProof(ProofTypes.COMPLIANCE, _dummyProof(), _complianceInputs()));
     }
@@ -138,8 +146,7 @@ contract XochiZKPVerifierTest is Test {
     }
 
     function test_verifyProofBatch_oneFails() public {
-        vm.prank(owner);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, address(failingVerifier));
+        _upgradeVerifier(ProofTypes.COMPLIANCE, address(failingVerifier));
 
         uint8[] memory types = new uint8[](2);
         types[0] = ProofTypes.COMPLIANCE;
@@ -181,40 +188,151 @@ contract XochiZKPVerifierTest is Test {
     }
 
     // -------------------------------------------------------------------------
-    // Admin
+    // Admin: setVerifierInitial
     // -------------------------------------------------------------------------
 
-    function test_setVerifier_updatesAddress() public {
+    function test_setVerifierInitial_revert_alreadySet() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPVerifier.VerifierAlreadySet.selector, ProofTypes.COMPLIANCE));
+        verifier.setVerifierInitial(ProofTypes.COMPLIANCE, address(passingVerifier));
+    }
+
+    function test_setVerifierInitial_fresh() public {
+        XochiZKPVerifier fresh = new XochiZKPVerifier(owner);
         address newVerifier = makeAddr("newVerifier");
         vm.prank(owner);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, newVerifier);
+        fresh.setVerifierInitial(ProofTypes.COMPLIANCE, newVerifier);
+        assertEq(fresh.getVerifier(ProofTypes.COMPLIANCE), newVerifier);
+    }
+
+    function test_setVerifierInitial_revert_notOwner() public {
+        XochiZKPVerifier fresh = new XochiZKPVerifier(owner);
+        vm.prank(alice);
+        vm.expectRevert(Ownable2Step.Unauthorized.selector);
+        fresh.setVerifierInitial(ProofTypes.COMPLIANCE, address(passingVerifier));
+    }
+
+    function test_setVerifierInitial_revert_zeroAddress() public {
+        XochiZKPVerifier fresh = new XochiZKPVerifier(owner);
+        vm.prank(owner);
+        vm.expectRevert(Ownable2Step.ZeroAddress.selector);
+        fresh.setVerifierInitial(ProofTypes.COMPLIANCE, address(0));
+    }
+
+    function test_setVerifierInitial_revert_invalidProofType() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(ProofTypes.InvalidProofType.selector, 0x07));
+        verifier.setVerifierInitial(0x07, address(passingVerifier));
+    }
+
+    // -------------------------------------------------------------------------
+    // Admin: proposeVerifier / executeVerifierUpdate / cancelVerifierProposal
+    // -------------------------------------------------------------------------
+
+    function test_proposeVerifier_setsProposal() public {
+        address newVerifier = makeAddr("newVerifier");
+        vm.prank(owner);
+        verifier.proposeVerifier(ProofTypes.COMPLIANCE, newVerifier);
+
+        (address proposed, uint256 readyAt) = verifier.getPendingVerifier(ProofTypes.COMPLIANCE);
+        assertEq(proposed, newVerifier);
+        assertEq(readyAt, block.timestamp + 24 hours);
+    }
+
+    function test_executeVerifierUpdate_afterTimelock() public {
+        address newVerifier = makeAddr("newVerifier");
+        _upgradeVerifier(ProofTypes.COMPLIANCE, newVerifier);
         assertEq(verifier.getVerifier(ProofTypes.COMPLIANCE), newVerifier);
     }
 
-    function test_setVerifier_revert_notOwner() public {
-        vm.prank(alice);
-        vm.expectRevert(Ownable2Step.Unauthorized.selector);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, address(passingVerifier));
-    }
-
-    function test_setVerifier_revert_zeroAddress() public {
-        vm.prank(owner);
-        vm.expectRevert(Ownable2Step.ZeroAddress.selector);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, address(0));
-    }
-
-    function test_setVerifier_revert_invalidProofType() public {
-        vm.prank(owner);
-        vm.expectRevert(abi.encodeWithSelector(ProofTypes.InvalidProofType.selector, 0x07));
-        verifier.setVerifier(0x07, address(passingVerifier));
-    }
-
-    function test_setVerifier_emitsEvent() public {
+    function test_executeVerifierUpdate_revert_beforeTimelock() public {
         address newVerifier = makeAddr("newVerifier");
+        vm.prank(owner);
+        verifier.proposeVerifier(ProofTypes.COMPLIANCE, newVerifier);
+
+        vm.warp(block.timestamp + 24 hours - 1);
+        vm.prank(owner);
+        vm.expectRevert(
+            abi.encodeWithSelector(
+                XochiZKPVerifier.TimelockNotElapsed.selector, ProofTypes.COMPLIANCE, block.timestamp + 1
+            )
+        );
+        verifier.executeVerifierUpdate(ProofTypes.COMPLIANCE);
+    }
+
+    function test_executeVerifierUpdate_exactBoundary() public {
+        address newVerifier = makeAddr("newVerifier");
+        uint256 proposeTime = block.timestamp;
+        vm.prank(owner);
+        verifier.proposeVerifier(ProofTypes.COMPLIANCE, newVerifier);
+
+        vm.warp(proposeTime + 24 hours);
+        vm.prank(owner);
+        verifier.executeVerifierUpdate(ProofTypes.COMPLIANCE);
+        assertEq(verifier.getVerifier(ProofTypes.COMPLIANCE), newVerifier);
+    }
+
+    function test_cancelVerifierProposal() public {
+        address newVerifier = makeAddr("newVerifier");
+        vm.prank(owner);
+        verifier.proposeVerifier(ProofTypes.COMPLIANCE, newVerifier);
+
+        vm.prank(owner);
+        verifier.cancelVerifierProposal(ProofTypes.COMPLIANCE);
+
+        (address proposed, uint256 readyAt) = verifier.getPendingVerifier(ProofTypes.COMPLIANCE);
+        assertEq(proposed, address(0));
+        assertEq(readyAt, 0);
+    }
+
+    function test_cancelVerifierProposal_revert_noPending() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPVerifier.NoPendingProposal.selector, ProofTypes.COMPLIANCE));
+        verifier.cancelVerifierProposal(ProofTypes.COMPLIANCE);
+    }
+
+    function test_proposeVerifier_revert_alreadyPending() public {
+        address v1 = makeAddr("v1");
+        address v2 = makeAddr("v2");
+        vm.prank(owner);
+        verifier.proposeVerifier(ProofTypes.COMPLIANCE, v1);
+
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPVerifier.ProposalAlreadyPending.selector, ProofTypes.COMPLIANCE));
+        verifier.proposeVerifier(ProofTypes.COMPLIANCE, v2);
+    }
+
+    function test_executeVerifierUpdate_revert_noPending() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPVerifier.NoPendingProposal.selector, ProofTypes.COMPLIANCE));
+        verifier.executeVerifierUpdate(ProofTypes.COMPLIANCE);
+    }
+
+    function test_executeVerifierUpdate_emitsEvent() public {
+        address newVerifier = makeAddr("newVerifier");
+        vm.prank(owner);
+        verifier.proposeVerifier(ProofTypes.COMPLIANCE, newVerifier);
+
+        vm.warp(block.timestamp + 24 hours);
         vm.prank(owner);
         vm.expectEmit(true, true, true, true);
         emit XochiZKPVerifier.VerifierUpdated(ProofTypes.COMPLIANCE, address(passingVerifier), newVerifier);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, newVerifier);
+        verifier.executeVerifierUpdate(ProofTypes.COMPLIANCE);
+    }
+
+    function test_proposeVerifier_emitsEvent() public {
+        address newVerifier = makeAddr("newVerifier");
+        uint256 readyAt = block.timestamp + 24 hours;
+        vm.prank(owner);
+        vm.expectEmit(true, true, true, true);
+        emit XochiZKPVerifier.VerifierProposed(ProofTypes.COMPLIANCE, newVerifier, readyAt);
+        verifier.proposeVerifier(ProofTypes.COMPLIANCE, newVerifier);
+    }
+
+    function test_getPendingVerifier_noPending() public view {
+        (address proposed, uint256 readyAt) = verifier.getPendingVerifier(ProofTypes.COMPLIANCE);
+        assertEq(proposed, address(0));
+        assertEq(readyAt, 0);
     }
 
     // -------------------------------------------------------------------------
@@ -267,44 +385,32 @@ contract XochiZKPVerifierTest is Test {
         // Start with passing verifier, upgrade to failing
         assertTrue(verifier.verifyProof(ProofTypes.COMPLIANCE, _dummyProof(), _complianceInputs()));
 
-        vm.prank(owner);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, address(failingVerifier));
+        _upgradeVerifier(ProofTypes.COMPLIANCE, address(failingVerifier));
 
         assertFalse(verifier.verifyProof(ProofTypes.COMPLIANCE, _dummyProof(), _complianceInputs()));
     }
 
     function test_verifierUpgrade_otherTypesUnaffected() public {
         // Upgrade only COMPLIANCE, others should still pass
-        vm.prank(owner);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, address(failingVerifier));
+        _upgradeVerifier(ProofTypes.COMPLIANCE, address(failingVerifier));
 
         assertFalse(verifier.verifyProof(ProofTypes.COMPLIANCE, _dummyProof(), _complianceInputs()));
         assertTrue(verifier.verifyProof(ProofTypes.RISK_SCORE, _dummyProof(), _riskScoreInputs()));
         assertTrue(verifier.verifyProof(ProofTypes.MEMBERSHIP, _dummyProof(), _membershipInputs()));
     }
 
-    function test_verifierUpgrade_emitsOldAndNew() public {
-        address newVerifier = makeAddr("newVerifier");
-        vm.prank(owner);
-
-        vm.expectEmit(true, true, true, true);
-        emit XochiZKPVerifier.VerifierUpdated(ProofTypes.COMPLIANCE, address(passingVerifier), newVerifier);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, newVerifier);
-    }
-
     // -------------------------------------------------------------------------
     // Verifier history
     // -------------------------------------------------------------------------
 
-    function test_setVerifier_buildsHistory() public {
-        // setUp already called setVerifier for each type (version 1)
+    function test_verifierUpgrade_buildsHistory() public {
+        // setUp already called setVerifierInitial for each type (version 1)
         assertEq(verifier.getVerifierVersion(ProofTypes.COMPLIANCE), 1);
         assertEq(verifier.getVerifierAtVersion(ProofTypes.COMPLIANCE, 1), address(passingVerifier));
 
-        // Upgrade to version 2
+        // Upgrade to version 2 via timelock
         address v2 = makeAddr("v2Verifier");
-        vm.prank(owner);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, v2);
+        _upgradeVerifier(ProofTypes.COMPLIANCE, v2);
 
         assertEq(verifier.getVerifierVersion(ProofTypes.COMPLIANCE), 2);
         assertEq(verifier.getVerifierAtVersion(ProofTypes.COMPLIANCE, 1), address(passingVerifier));
@@ -312,9 +418,8 @@ contract XochiZKPVerifierTest is Test {
     }
 
     function test_verifyProofAtVersion_routesToHistorical() public {
-        // Upgrade COMPLIANCE to failing verifier (version 2)
-        vm.prank(owner);
-        verifier.setVerifier(ProofTypes.COMPLIANCE, address(failingVerifier));
+        // Upgrade COMPLIANCE to failing verifier (version 2) via timelock
+        _upgradeVerifier(ProofTypes.COMPLIANCE, address(failingVerifier));
 
         // Version 1 (passing) should still return true
         assertTrue(verifier.verifyProofAtVersion(ProofTypes.COMPLIANCE, 1, _dummyProof(), _complianceInputs()));
@@ -345,11 +450,11 @@ contract XochiZKPVerifierTest is Test {
         verifier.verifyProof(proofType, _dummyProof(), _complianceInputs());
     }
 
-    function testFuzz_setVerifier_revert_invalidProofType(uint8 proofType) public {
+    function testFuzz_proposeVerifier_revert_invalidProofType(uint8 proofType) public {
         vm.assume(proofType == 0 || proofType > 6);
         vm.prank(owner);
         vm.expectRevert(abi.encodeWithSelector(ProofTypes.InvalidProofType.selector, proofType));
-        verifier.setVerifier(proofType, address(passingVerifier));
+        verifier.proposeVerifier(proofType, address(passingVerifier));
     }
 
     // -------------------------------------------------------------------------
@@ -516,45 +621,49 @@ contract XochiZKPVerifierTest is Test {
         );
     }
 
-    /// @dev 5 public inputs: analysis_type, result, reporting_threshold, time_window, tx_set_hash
+    /// @dev 6 public inputs: analysis_type, result, reporting_threshold, time_window, tx_set_hash, submitter
     function _patternInputs() internal pure returns (bytes memory) {
         return abi.encodePacked(
             bytes32(uint256(1)), // analysis_type: structuring
             bytes32(uint256(1)), // result: clean
             bytes32(uint256(10000)), // reporting_threshold
             bytes32(uint256(3600)), // time_window
-            bytes32(uint256(0xeeff)) // tx_set_hash
+            bytes32(uint256(0xeeff)), // tx_set_hash
+            bytes32(uint256(0xdead)) // submitter
         );
     }
 
-    /// @dev 5 public inputs: provider_id, credential_type, is_valid, merkle_root, current_timestamp
+    /// @dev 6 public inputs: provider_id, credential_type, is_valid, merkle_root, current_timestamp, submitter
     function _attestationInputs() internal pure returns (bytes memory) {
         return abi.encodePacked(
             bytes32(uint256(42)), // provider_id
             bytes32(uint256(1)), // credential_type: KYC basic
             bytes32(uint256(1)), // is_valid: true
             bytes32(uint256(0xdead)), // merkle_root
-            bytes32(uint256(1700000)) // current_timestamp
+            bytes32(uint256(1700000)), // current_timestamp
+            bytes32(uint256(0xdead)) // submitter
         );
     }
 
-    /// @dev 4 public inputs: merkle_root, set_id, timestamp, is_member
+    /// @dev 5 public inputs: merkle_root, set_id, timestamp, is_member, submitter
     function _membershipInputs() internal pure returns (bytes memory) {
         return abi.encodePacked(
             bytes32(uint256(0xabcd)), // merkle_root
             bytes32(uint256(1)), // set_id
             bytes32(uint256(1700000)), // timestamp
-            bytes32(uint256(1)) // is_member: true
+            bytes32(uint256(1)), // is_member: true
+            bytes32(uint256(0xdead)) // submitter
         );
     }
 
-    /// @dev 4 public inputs: merkle_root, set_id, timestamp, is_non_member
+    /// @dev 5 public inputs: merkle_root, set_id, timestamp, is_non_member, submitter
     function _nonMembershipInputs() internal pure returns (bytes memory) {
         return abi.encodePacked(
             bytes32(uint256(0xabcd)), // merkle_root
             bytes32(uint256(1)), // set_id
             bytes32(uint256(1700000)), // timestamp
-            bytes32(uint256(1)) // is_non_member: true
+            bytes32(uint256(1)), // is_non_member: true
+            bytes32(uint256(0xdead)) // submitter
         );
     }
 }

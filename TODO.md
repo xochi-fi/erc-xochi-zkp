@@ -2,15 +2,15 @@
 
 ## Current Status
 
-- 175/175 Solidity tests pass (49 verifier + 98 oracle + 15 integration + 13 ProofTypes)
+- 229/229 Solidity tests pass (59 verifier + 116 oracle + 41 registry + 5 invariant + 8 ProofTypes; 10 integration tests need fixture regen)
 - 70/70 Noir circuit tests pass (7 packages: shared 11, compliance 8, risk_score 13, pattern 12, attestation 10, membership 5, non_membership 11)
 - 16/16 xochi e2e tests pass (TS + anvil, all 6 proof types + runtime proving)
 - 3/3 TS consumer SDK tests pass (noir_js -> bb.js -> anvil -> on-chain verify)
 - 7/7 client SDK tests pass (XochiProver + encoding)
 - EIP draft aligned with implementation
-- Tooling: nargo 1.0.0-beta.19, forge 1.5.1, bb 4.0.0-nightly.20260120
-- Gas snapshot captured (.gas-snapshot)
-- Real proof fixtures for all 6 circuits
+- Tooling: nargo 1.0.0-beta.20, forge 1.5.1, bb 4.0.0-nightly.20260120
+- Gas snapshot needs update (public input counts changed)
+- Real proof fixtures need regen (submitter field added to all 6 circuits)
 - xochi integration: shared oracle ABI, worker on-chain verification, useCompliance hook, real ZK proving
 - Client SDK: `@xochi/sdk` in ../xochi-sdk (XochiProver, typed input builders, 3 circuit loaders)
 
@@ -35,6 +35,17 @@
 - Proof replay protection (\_usedProofs mapping)
 - Attestation history pagination
 - Ownership transfer 48-hour timeout on both contracts
+</details>
+
+<details>
+<summary>Security hardening (2026-04-22)</summary>
+
+- Proof front-running mitigation: submitter pub Field added to all 6 circuits, Oracle enforces submitter == msg.sender
+- Circuit timestamp staleness check: MAX_PROOF_AGE (1 hour) enforced for COMPLIANCE, ATTESTATION, MEMBERSHIP, NON_MEMBERSHIP
+- Mandatory timelock on verifier replacement: 24h propose/execute/cancel pattern, setVerifierInitial for deployment only
+- Pattern time_window minimum: MIN_TIME_WINDOW (3600s) enforced in Oracle
+- proofType in ComplianceAttestation: struct field + checkComplianceByType() query
+- Noir u1 -> bool migration (nargo 1.0.0-beta.20 compat)
 </details>
 
 <details>
@@ -76,11 +87,11 @@
 
 ### High priority (pre-mainnet blockers)
 
-- [ ] **Proof front-running mitigation**: Proofs are not bound to msg.sender. An attacker watching the mempool can copy a user's proof bytes and submit first, burning the proof (ProofAlreadyUsed) while the attacker gets a meaningless attestation. Mitigations: (a) commit-reveal scheme, (b) add subject address as a public circuit input, or (c) use Flashbots/private mempool for submissions. Document as known limitation at minimum.
-- [ ] **Circuit timestamp staleness check**: The Oracle accepts any timestamp in the proof's public inputs (circuits only enforce >2021, <2^40). A proof generated weeks ago can be submitted today. Add on-chain check: `|block.timestamp - proofTimestamp| < MAX_PROOF_AGE` (e.g., 1 hour). Applies to COMPLIANCE (offset 96:128), ATTESTATION (offset 128:160), MEMBERSHIP/NON_MEMBERSHIP (offset 64:96).
-- [ ] **Mandatory timelock on verifier replacement**: A compromised admin key can swap a verifier to one that accepts any proof, then submit fake attestations, all in one block. The EIP says SHOULD for timelocking admin ops -- strengthen to MUST for `setVerifier()` specifically. Implement a minimum delay (e.g., 24h) enforced in the contract itself, not just as an external governance pattern. The two-step ownership is good but insufficient alone -- the admin controls verifier addresses, config hashes, merkle roots, reporting thresholds, TTL, and pause. That's too much power without a timelock.
-- [ ] **Pattern time_window minimum enforcement**: Circuit now enforces `time_window > 0` but the prover still controls the value. Setting it to 1 second trivially passes velocity checks. The Oracle doesn't validate time_window against any minimum. Options: (a) register valid time_windows in a registry alongside reporting thresholds, (b) enforce a per-analysis-type minimum in the Oracle (e.g., 3600s for velocity), or (c) add a `min_time_window` public input to the circuit. Option (b) is simplest.
-- [ ] **Cross-type attestation semantic gap**: The Oracle stores the same `ComplianceAttestation` struct for all 6 proof types but doesn't record which proof type was used. A consumer calling `checkCompliance()` gets `valid=true` regardless of whether the proof was COMPLIANCE (AML risk score) or MEMBERSHIP (address on a whitelist). If an integrator assumes "valid" means "AML-compliant" but the attestation was a MEMBERSHIP proof, that's a silent semantic mismatch. Fix: add `uint8 proofType` field to `ComplianceAttestation` struct and filter in `checkCompliance()`, or provide a `checkComplianceByType()` variant.
+- [x] **Proof front-running mitigation**: All 6 circuits expose `submitter: pub Field`. Oracle enforces `submitter == msg.sender` via `SubmitterMismatch` error.
+- [x] **Circuit timestamp staleness check**: `MAX_PROOF_AGE = 1 hour` enforced for COMPLIANCE, ATTESTATION, MEMBERSHIP, NON_MEMBERSHIP. RISK_SCORE and PATTERN have no timestamp (documented).
+- [x] **Mandatory timelock on verifier replacement**: `proposeVerifier()` + `executeVerifierUpdate()` with 24h `VERIFIER_TIMELOCK`. `setVerifierInitial()` for first-time setup only. `cancelVerifierProposal()` + `getPendingVerifier()` for management.
+- [x] **Pattern time_window minimum enforcement**: `MIN_TIME_WINDOW = 3600` (1 hour) enforced in `_validatePatternInputs()`. `TimeWindowTooSmall` error.
+- [x] **Cross-type attestation semantic gap**: `uint8 proofType` added to `ComplianceAttestation` struct. `checkComplianceByType()` filters by proof type. `getProofType()` still available via mapping.
 - [ ] **Run Slither + Mythril static analysis**: No static analysis has been run on the contracts. Slither catches common patterns (reentrancy, unchecked returns, etc.), Mythril finds symbolic execution bugs. Add to CI.
 
 ### Medium priority

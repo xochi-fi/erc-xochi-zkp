@@ -36,7 +36,7 @@ contract SettlementRegistryTest is Test {
         stubVerifier = new AlwaysPassVerifier();
         vm.startPrank(owner);
         for (uint8 i = ProofTypes.COMPLIANCE; i <= ProofTypes.NON_MEMBERSHIP; i++) {
-            verifier.setVerifier(i, address(stubVerifier));
+            verifier.setVerifierInitial(i, address(stubVerifier));
         }
         oracle.registerReportingThreshold(bytes32(uint256(10000)));
         vm.stopPrank();
@@ -624,7 +624,7 @@ contract SettlementRegistryTest is Test {
             bytes32(uint256(jurisdictionId)),
             DEFAULT_PROVIDER_SET_HASH,
             INITIAL_CONFIG,
-            bytes32(uint256(1700000)),
+            bytes32(block.timestamp),
             bytes32(uint256(1)),
             bytes32(uint256(uint160(who)))
         );
@@ -646,7 +646,8 @@ contract SettlementRegistryTest is Test {
             bytes32(uint256(1)), // result
             bytes32(uint256(10000)), // reporting_threshold
             bytes32(uint256(86400)), // time_window
-            bytes32(uint256(0xabcd)) // tx_set_hash
+            bytes32(uint256(0xabcd)), // tx_set_hash
+            bytes32(uint256(uint160(who))) // submitter
         );
         vm.prank(who);
         oracle.submitCompliance(0, ProofTypes.PATTERN, proof, publicInputs, bytes32(0));

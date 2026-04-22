@@ -20,6 +20,7 @@
 ///   - set_id: identifier for which set (e.g., OFAC list version)
 ///   - timestamp: block timestamp for temporal binding
 ///   - is_non_member: boolean result (true = element is NOT in the set)
+///   - submitter: address of the authorized proof submitter (anti-frontrun)
 ///
 /// Private inputs:
 ///   - element: the value being checked
@@ -51,7 +52,11 @@ fn main(
     set_id: pub Field,                // identifies which set
     timestamp: pub Field,             // temporal binding
     is_non_member: pub bool,          // the result
+    submitter: pub Field,             // authorized submitter address (oracle enforces == msg.sender)
 ) {
+    // 0. Anchor submitter as a public input (oracle enforces submitter == msg.sender).
+    assert(submitter != 0, "submitter must be non-zero");
+
     // 1. Timestamp must be within reasonable bounds
     validate_timestamp(timestamp);
 
@@ -181,7 +186,7 @@ fn test_main_valid_non_membership() {
         element, low_leaf, high_leaf,
         0, low_path,     // low at index 0
         1, high_path,    // high at index 1
-        root, set_id, 1700000000, true,
+        root, set_id, 1700000000, true, 0xdead,
     );
 }
 
@@ -215,7 +220,7 @@ fn test_main_revert_element_equals_low_leaf() {
         element, low_leaf, high_leaf,
         0, low_path,
         1, high_path,
-        root, set_id, 1700000000, true,
+        root, set_id, 1700000000, true, 0xdead,
     );
 }
 
@@ -241,6 +246,6 @@ fn test_main_revert_element_equals_high_leaf() {
         element, low_leaf, high_leaf,
         0, low_path,
         1, high_path,
-        root, set_id, 1700000000, true,
+        root, set_id, 1700000000, true, 0xdead,
     );
 }

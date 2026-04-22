@@ -18,8 +18,20 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
     /// @notice Append-only history of verifier addresses per proof type
     mapping(uint8 proofType => address[] history) internal _verifierHistory;
 
+    /// @notice Pending verifier proposals per proof type
+    mapping(uint8 proofType => VerifierProposal proposal) internal _pendingVerifiers;
+
+    struct VerifierProposal {
+        address newVerifier;
+        uint256 proposedAt;
+    }
+
     error VerifierNotSet(uint8 proofType);
+    error VerifierAlreadySet(uint8 proofType);
     error InvalidVersion(uint8 proofType, uint256 version);
+    error TimelockNotElapsed(uint8 proofType, uint256 readyAt);
+    error NoPendingProposal(uint8 proofType);
+    error ProposalAlreadyPending(uint8 proofType);
     error BatchLengthMismatch();
     error EmptyBatch();
     error BatchTooLarge();
@@ -27,7 +39,12 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
     /// @notice Maximum number of proofs in a single batch verification
     uint256 public constant MAX_BATCH_SIZE = 100;
 
+    /// @notice Delay before a proposed verifier can be executed
+    uint256 public constant VERIFIER_TIMELOCK = 24 hours;
+
     event VerifierUpdated(uint8 indexed proofType, address indexed oldVerifier, address indexed newVerifier);
+    event VerifierProposed(uint8 indexed proofType, address indexed newVerifier, uint256 readyAt);
+    event VerifierProposalCancelled(uint8 indexed proofType, address indexed cancelledVerifier);
 
     constructor(address initialOwner) {
         if (initialOwner == address(0)) revert ZeroAddress();
@@ -104,17 +121,70 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
     // Admin
     // -------------------------------------------------------------------------
 
-    /// @notice Set or update the verifier contract for a proof type
+    /// @notice Set verifier for initial deployment only (no timelock)
+    /// @dev Reverts if a verifier is already set for this proof type.
+    ///      Use proposeVerifier + executeVerifierUpdate for subsequent changes.
     /// @param proofType The proof type (0x01-0x06)
     /// @param verifier The UltraHonk verifier contract address
-    function setVerifier(uint8 proofType, address verifier) external onlyOwner {
+    function setVerifierInitial(uint8 proofType, address verifier) external onlyOwner {
         if (!ProofTypes.isValidProofType(proofType)) revert ProofTypes.InvalidProofType(proofType);
         if (verifier == address(0)) revert ZeroAddress();
+        if (_verifiers[proofType] != address(0)) revert VerifierAlreadySet(proofType);
 
-        address old = _verifiers[proofType];
         _verifiers[proofType] = verifier;
         _verifierHistory[proofType].push(verifier);
-        emit VerifierUpdated(proofType, old, verifier);
+        emit VerifierUpdated(proofType, address(0), verifier);
+    }
+
+    /// @notice Propose a new verifier for a proof type (starts timelock)
+    /// @param proofType The proof type (0x01-0x06)
+    /// @param newVerifier The proposed UltraHonk verifier contract address
+    function proposeVerifier(uint8 proofType, address newVerifier) external onlyOwner {
+        if (!ProofTypes.isValidProofType(proofType)) revert ProofTypes.InvalidProofType(proofType);
+        if (newVerifier == address(0)) revert ZeroAddress();
+        if (_pendingVerifiers[proofType].proposedAt != 0) revert ProposalAlreadyPending(proofType);
+
+        _pendingVerifiers[proofType] = VerifierProposal({newVerifier: newVerifier, proposedAt: block.timestamp});
+
+        uint256 readyAt = block.timestamp + VERIFIER_TIMELOCK;
+        emit VerifierProposed(proofType, newVerifier, readyAt);
+    }
+
+    /// @notice Execute a pending verifier update after the timelock has elapsed
+    /// @param proofType The proof type (0x01-0x06)
+    function executeVerifierUpdate(uint8 proofType) external onlyOwner {
+        VerifierProposal memory proposal = _pendingVerifiers[proofType];
+        if (proposal.proposedAt == 0) revert NoPendingProposal(proofType);
+
+        uint256 readyAt = proposal.proposedAt + VERIFIER_TIMELOCK;
+        if (block.timestamp < readyAt) revert TimelockNotElapsed(proofType, readyAt);
+
+        address old = _verifiers[proofType];
+        _verifiers[proofType] = proposal.newVerifier;
+        _verifierHistory[proofType].push(proposal.newVerifier);
+        delete _pendingVerifiers[proofType];
+
+        emit VerifierUpdated(proofType, old, proposal.newVerifier);
+    }
+
+    /// @notice Cancel a pending verifier proposal
+    /// @param proofType The proof type (0x01-0x06)
+    function cancelVerifierProposal(uint8 proofType) external onlyOwner {
+        VerifierProposal memory proposal = _pendingVerifiers[proofType];
+        if (proposal.proposedAt == 0) revert NoPendingProposal(proofType);
+
+        delete _pendingVerifiers[proofType];
+        emit VerifierProposalCancelled(proofType, proposal.newVerifier);
+    }
+
+    /// @notice Get the pending verifier proposal for a proof type
+    /// @param proofType The proof type
+    /// @return newVerifier The proposed verifier address (address(0) if none)
+    /// @return readyAt The timestamp when the proposal can be executed (0 if none)
+    function getPendingVerifier(uint8 proofType) external view returns (address newVerifier, uint256 readyAt) {
+        VerifierProposal memory proposal = _pendingVerifiers[proofType];
+        if (proposal.proposedAt == 0) return (address(0), 0);
+        return (proposal.newVerifier, proposal.proposedAt + VERIFIER_TIMELOCK);
     }
 
     /// @notice Pause the contract, blocking proof verification

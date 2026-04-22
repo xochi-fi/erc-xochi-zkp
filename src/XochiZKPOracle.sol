@@ -72,12 +72,20 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
     error BatchLengthMismatch();
     error EmptyBatch();
     error BatchTooLarge();
+    error TimeWindowTooSmall(uint256 timeWindow, uint256 minimum);
+    error ProofTimestampStale(uint256 proofTimestamp, uint256 blockTimestamp);
 
     /// @notice Maximum number of entries in the config history array
     uint256 public constant MAX_CONFIG_HISTORY = 256;
 
     /// @notice Maximum number of proofs in a single batch submission
     uint256 public constant MAX_BATCH_SIZE = 100;
+
+    /// @notice Minimum time window for PATTERN (anti-structuring) proofs in seconds
+    uint256 public constant MIN_TIME_WINDOW = 3600;
+
+    /// @notice Maximum age of a proof timestamp relative to block.timestamp
+    uint256 public constant MAX_PROOF_AGE = 1 hours;
 
     /// @param _verifier The XochiZKPVerifier contract address
     /// @param initialOwner The initial owner address
@@ -136,7 +144,7 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         // Build and store attestation (providerSetHash only meaningful for COMPLIANCE proofs)
         bytes32 effectiveProviderSetHash = proofType == ProofTypes.COMPLIANCE ? providerSetHash : bytes32(0);
         attestation = _buildAttestation(
-            jurisdictionId, proofHash, effectiveProviderSetHash, keccak256(publicInputs), verifierUsed
+            jurisdictionId, proofType, proofHash, effectiveProviderSetHash, keccak256(publicInputs), verifierUsed
         );
 
         uint256 previousExpiresAt = _attestations[msg.sender][jurisdictionId].expiresAt;
@@ -186,6 +194,17 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
 
         // Valid if attestation exists, threshold was met, and not expired
         valid = attestation.timestamp > 0 && attestation.meetsThreshold && block.timestamp <= attestation.expiresAt;
+    }
+
+    /// @inheritdoc IXochiZKPOracle
+    function checkComplianceByType(address subject, uint8 jurisdictionId, uint8 proofType)
+        external
+        view
+        returns (bool valid, ComplianceAttestation memory attestation)
+    {
+        attestation = _attestations[subject][jurisdictionId];
+        valid = attestation.timestamp > 0 && attestation.meetsThreshold && block.timestamp <= attestation.expiresAt
+            && attestation.proofType == proofType;
     }
 
     /// @inheritdoc IXochiZKPOracle
@@ -399,8 +418,9 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         (address verifierUsed, bytes32 proofHash) = _verifyAndRecordProof(proofType, proof, inputs);
 
         bytes32 effectiveProviderSetHash = proofType == ProofTypes.COMPLIANCE ? providerSetHash : bytes32(0);
-        attestation =
-            _buildAttestation(jurisdictionId, proofHash, effectiveProviderSetHash, keccak256(inputs), verifierUsed);
+        attestation = _buildAttestation(
+            jurisdictionId, proofType, proofHash, effectiveProviderSetHash, keccak256(inputs), verifierUsed
+        );
 
         uint256 previousExpiresAt = _attestations[msg.sender][jurisdictionId].expiresAt;
         _attestations[msg.sender][jurisdictionId] = attestation;
@@ -433,6 +453,7 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
     /// @dev Build a ComplianceAttestation struct (extracted to reduce stack depth)
     function _buildAttestation(
         uint8 jurisdictionId,
+        uint8 proofType,
         bytes32 proofHash,
         bytes32 providerSetHash,
         bytes32 publicInputsHash,
@@ -441,6 +462,7 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         attestation = ComplianceAttestation({
             subject: msg.sender,
             jurisdictionId: jurisdictionId,
+            proofType: proofType,
             meetsThreshold: true,
             timestamp: block.timestamp,
             expiresAt: block.timestamp + _attestationTTL,
@@ -449,6 +471,13 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
             publicInputsHash: publicInputsHash,
             verifierUsed: verifierUsed
         });
+    }
+
+    /// @dev Check that a proof timestamp is within MAX_PROOF_AGE of block.timestamp
+    function _validateProofTimestamp(uint256 proofTimestamp) internal view {
+        uint256 diff =
+            block.timestamp > proofTimestamp ? block.timestamp - proofTimestamp : proofTimestamp - block.timestamp;
+        if (diff > MAX_PROOF_AGE) revert ProofTimestampStale(proofTimestamp, block.timestamp);
     }
 
     /// @dev Validate that caller-supplied jurisdiction and providerSetHash match
@@ -476,10 +505,13 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         if (!_validConfigs[proofConfigHash]) revert InvalidConfigHash(proofConfigHash);
         if (proofMeetsThreshold != bytes32(uint256(1))) revert ProofResultNegative();
         if (proofSubmitter != msg.sender) revert SubmitterMismatch();
+        uint256 proofTimestamp = uint256(bytes32(publicInputs[96:128]));
+        _validateProofTimestamp(proofTimestamp);
     }
 
     /// @dev Validate that the config_hash in RISK_SCORE public inputs is a known config
     ///      and that the result field indicates a positive outcome.
+    ///      NOTE: RISK_SCORE has no timestamp in public inputs; staleness not enforced.
     function _validateRiskScoreInputs(bytes calldata publicInputs) internal view {
         // RISK_SCORE public inputs layout (each 32 bytes):
         //   [0]: proof_type
@@ -499,7 +531,9 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
     }
 
     /// @dev Validate PATTERN public inputs.
-    ///      Ensures result is positive, reporting_threshold is registered, and tx_set_hash is non-zero.
+    ///      Ensures result is positive, reporting_threshold is registered, tx_set_hash is non-zero,
+    ///      time_window meets minimum, and submitter matches msg.sender.
+    ///      NOTE: PATTERN uses time_window (not a timestamp); staleness not enforced.
     function _validatePatternInputs(bytes calldata publicInputs) internal view {
         // PATTERN public inputs layout (each 32 bytes):
         //   [0]: analysis_type
@@ -507,18 +541,23 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         //   [2]: reporting_threshold
         //   [3]: time_window
         //   [4]: tx_set_hash
+        //   [5]: submitter
         bytes32 proofResult = bytes32(publicInputs[32:64]);
         if (proofResult != bytes32(uint256(1))) revert ProofResultNegative();
         bytes32 reportingThreshold = bytes32(publicInputs[64:96]);
         if (!_validReportingThresholds[reportingThreshold]) {
             revert InvalidReportingThreshold(reportingThreshold);
         }
+        uint256 timeWindow = uint256(bytes32(publicInputs[96:128]));
+        if (timeWindow < MIN_TIME_WINDOW) revert TimeWindowTooSmall(timeWindow, MIN_TIME_WINDOW);
         bytes32 txSetHash = bytes32(publicInputs[128:160]);
         if (txSetHash == bytes32(0)) revert PublicInputMismatch();
+        address proofSubmitter = address(uint160(uint256(bytes32(publicInputs[160:192]))));
+        if (proofSubmitter != msg.sender) revert SubmitterMismatch();
     }
 
     /// @dev Validate ATTESTATION public inputs.
-    ///      Ensures is_valid is true and merkle_root is a registered root.
+    ///      Ensures is_valid is true, merkle_root is registered, and submitter matches msg.sender.
     function _validateAttestationInputs(bytes calldata publicInputs) internal view {
         // ATTESTATION public inputs layout (each 32 bytes):
         //   [0]: provider_id
@@ -526,37 +565,52 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         //   [2]: is_valid
         //   [3]: merkle_root
         //   [4]: current_timestamp
+        //   [5]: submitter
         bytes32 proofIsValid = bytes32(publicInputs[64:96]);
         if (proofIsValid != bytes32(uint256(1))) revert ProofResultNegative();
         bytes32 merkleRoot = bytes32(publicInputs[96:128]);
         if (!_validMerkleRoots[merkleRoot]) revert InvalidMerkleRoot(merkleRoot);
+        uint256 proofTimestamp = uint256(bytes32(publicInputs[128:160]));
+        _validateProofTimestamp(proofTimestamp);
+        address proofSubmitter = address(uint160(uint256(bytes32(publicInputs[160:192]))));
+        if (proofSubmitter != msg.sender) revert SubmitterMismatch();
     }
 
     /// @dev Validate MEMBERSHIP public inputs.
-    ///      Ensures is_member is true and merkle_root is a registered root.
+    ///      Ensures is_member is true, merkle_root is registered, and submitter matches msg.sender.
     function _validateMembershipInputs(bytes calldata publicInputs) internal view {
         // MEMBERSHIP public inputs layout (each 32 bytes):
         //   [0]: merkle_root
         //   [1]: set_id
         //   [2]: timestamp
         //   [3]: is_member
+        //   [4]: submitter
         bytes32 merkleRoot = bytes32(publicInputs[0:32]);
         if (!_validMerkleRoots[merkleRoot]) revert InvalidMerkleRoot(merkleRoot);
+        uint256 proofTimestamp = uint256(bytes32(publicInputs[64:96]));
+        _validateProofTimestamp(proofTimestamp);
         bytes32 proofIsMember = bytes32(publicInputs[96:128]);
         if (proofIsMember != bytes32(uint256(1))) revert ProofResultNegative();
+        address proofSubmitter = address(uint160(uint256(bytes32(publicInputs[128:160]))));
+        if (proofSubmitter != msg.sender) revert SubmitterMismatch();
     }
 
     /// @dev Validate NON_MEMBERSHIP public inputs.
-    ///      Ensures is_non_member is true and merkle_root is a registered root.
+    ///      Ensures is_non_member is true, merkle_root is registered, and submitter matches msg.sender.
     function _validateNonMembershipInputs(bytes calldata publicInputs) internal view {
         // NON_MEMBERSHIP public inputs layout (each 32 bytes):
         //   [0]: merkle_root
         //   [1]: set_id
         //   [2]: timestamp
         //   [3]: is_non_member
+        //   [4]: submitter
         bytes32 merkleRoot = bytes32(publicInputs[0:32]);
         if (!_validMerkleRoots[merkleRoot]) revert InvalidMerkleRoot(merkleRoot);
+        uint256 proofTimestamp = uint256(bytes32(publicInputs[64:96]));
+        _validateProofTimestamp(proofTimestamp);
         bytes32 proofIsNonMember = bytes32(publicInputs[96:128]);
         if (proofIsNonMember != bytes32(uint256(1))) revert ProofResultNegative();
+        address proofSubmitter = address(uint160(uint256(bytes32(publicInputs[128:160]))));
+        if (proofSubmitter != msg.sender) revert SubmitterMismatch();
     }
 }

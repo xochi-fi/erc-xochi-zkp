@@ -14,6 +14,7 @@
 ///   - set_id: identifier for which set is being checked (e.g., whitelist version)
 ///   - timestamp: block timestamp for temporal binding
 ///   - is_member: boolean result
+///   - submitter: address of the authorized proof submitter (anti-frontrun)
 ///
 /// Private inputs:
 ///   - element: the value being checked for membership
@@ -34,6 +35,7 @@ fn main(
     set_id: pub Field,                 // identifies which set (versioning)
     timestamp: pub Field,              // temporal binding
     is_member: pub bool,               // the result
+    submitter: pub Field,              // authorized submitter address (oracle enforces == msg.sender)
 ) {
     // 1. Compute the leaf hash from the element
     //    leaf = H(element, set_id), binding the leaf to the specific set
@@ -48,6 +50,9 @@ fn main(
 
     // 4. Timestamp must be within reasonable bounds
     validate_timestamp(timestamp);
+
+    // 5. Anchor submitter as a public input (oracle enforces submitter == msg.sender).
+    assert(submitter != 0, "submitter must be non-zero");
 }
 
 // ---------------------------------------------------------------------------
@@ -119,7 +124,7 @@ fn test_main_valid_membership() {
     let path: [Field; 20] = [0; 20];
     let root = compute_merkle_root(leaf, 0, path);
 
-    main(element, 0, path, root, set_id, 1700000000, true);
+    main(element, 0, path, root, set_id, 1700000000, true, 0xdead);
 }
 
 #[test]
@@ -134,5 +139,5 @@ fn test_main_invalid_membership() {
     let root = compute_merkle_root(real_leaf, 0, path);
 
     // Fake element produces different root -> not a member
-    main(fake_element, 0, path, root, set_id, 1700000000, false);
+    main(fake_element, 0, path, root, set_id, 1700000000, false, 0xdead);
 }

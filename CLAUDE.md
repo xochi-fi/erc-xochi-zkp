@@ -17,7 +17,7 @@ ERC Xochi ZKP: a standard for zero-knowledge compliance proofs on Ethereum. User
 make build                     # compile contracts + circuits
 make test                      # run Solidity tests (200, includes SettlementRegistry)
 make test-noir                 # run Noir circuit tests (workspace)
-make test-sdk                  # run TS consumer SDK tests (3)
+make test-sdk                  # run TS consumer SDK tests (28 + 7 todo)
 make test-all                  # run all tests
 make fmt                       # format Solidity
 make fmt-check                 # check formatting (CI/pre-commit)

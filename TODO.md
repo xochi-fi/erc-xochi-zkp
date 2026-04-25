@@ -5,7 +5,7 @@
 - 229/229 Solidity tests pass (59 verifier + 116 oracle + 41 registry + 5 invariant + 8 ProofTypes; 10 integration tests need fixture regen)
 - 70/70 Noir circuit tests pass (7 packages: shared 11, compliance 8, risk_score 13, pattern 12, attestation 10, membership 5, non_membership 11)
 - 16/16 xochi e2e tests pass (TS + anvil, all 6 proof types + runtime proving)
-- 3/3 TS consumer SDK tests pass (noir_js -> bb.js -> anvil -> on-chain verify)
+- 28/35 TS consumer SDK tests pass (7 todo; noir_js -> bb.js -> anvil -> on-chain verify)
 - 7/7 client SDK tests pass (XochiProver + encoding)
 - EIP draft aligned with implementation
 - Tooling: nargo 1.0.0-beta.20, forge 1.5.1, bb 4.0.0-nightly.20260120
@@ -70,6 +70,7 @@
 - xochi e2e harness, shared oracle module, worker verification, useCompliance hook
 - Runtime proof generation in xochi e2e (replaced fixture-loading)
 - TS consumer SDK test, client SDK repo (@xochi/sdk)
+- CI workflow (GitHub Actions): solidity + circuits + sdk jobs, nargo 1.0.0-beta.20
 </details>
 
 <details>
@@ -123,27 +124,7 @@
 
 ## Next up
 
-### 1. CI workflow (GitHub Actions)
-
-Two jobs: `solidity` and `circuits`. Both trigger on push/PR to main.
-
-**solidity job:**
-
-- Install foundry (foundry-rs/foundry-toolchain action)
-- `forge build --sizes` (catch contract size regressions)
-- `forge test -vvv`
-- `forge fmt --check`
-- Cache: `~/.config/.foundry`
-
-**circuits job:**
-
-- Install nargo via noirup (noir-lang/noirup action or curl)
-- `cd circuits && nargo test --workspace`
-- Cache: `~/.nargo`
-
-Optional: add `sdk` job later when CI has node/npm (low priority, fast locally).
-
-### 2. Testnet deployment (Sepolia + Base Sepolia)
+### 1. Testnet deployment (Sepolia + Base Sepolia)
 
 Prerequisite: CI green.
 
@@ -156,7 +137,7 @@ Prerequisite: CI green.
 - [ ] Smoke test: submit a real compliance proof on testnet
 - [ ] Document deployed addresses in README
 
-### 3. Timelock + multi-sig for admin ops
+### 2. Timelock + multi-sig for admin ops
 
 Prerequisite: testnet deployment validated.
 
@@ -166,14 +147,14 @@ Prerequisite: testnet deployment validated.
 - [ ] Update Oracle + Verifier ownership to timelock
 - [ ] Test timelock flow end-to-end on testnet
 
-### 4. Gas benchmarks
+### 3. Gas benchmarks
 
 - [ ] Per-proof-type verification gas (all 6 types, real proofs)
 - [ ] submitCompliance gas breakdown (verify + storage + events)
 - [ ] Batch verification gas scaling curve
 - [ ] Add to CI as regression check (forge snapshot --check)
 
-### 5. Documentation site
+### 4. Documentation site
 
 - [ ] EIP spec as primary reference
 - [ ] Integration guide (SDK usage, proof generation, on-chain verification)

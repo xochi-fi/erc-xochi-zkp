@@ -161,6 +161,7 @@ const MEMBERSHIP_INPUTS = {
   set_id: "1",
   timestamp: "1700000000",
   is_member: true,
+  submitter: ALICE_ADDRESS,
 };
 
 const NON_MEMBERSHIP_INPUTS = {
@@ -175,6 +176,7 @@ const NON_MEMBERSHIP_INPUTS = {
   set_id: "1",
   timestamp: "1700000000",
   is_non_member: true,
+  submitter: ALICE_ADDRESS,
 };
 
 // ============================================================

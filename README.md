@@ -195,7 +195,7 @@ cp .env.example .env
 forge script script/Deploy.s.sol --rpc-url $SEPOLIA_RPC_URL --broadcast
 
 # After deploying generated verifiers, register them:
-cast send $VERIFIER_ADDR "setVerifier(uint8,address)" 0x01 $THRESHOLD_VERIFIER
+cast send $VERIFIER_ADDR "setVerifierInitial(uint8,address)" 0x01 $THRESHOLD_VERIFIER
 ```
 
 ## Client-side proof generation
@@ -233,7 +233,7 @@ const proof = await backend.generateProof(witness, { verifierTarget: "evm" });
 await api.destroy();
 ```
 
-A higher-level SDK is available at [`@xochi/sdk`](../xochi-sdk) with typed input builders and automatic validation.
+A higher-level SDK is available at [`@xochi/sdk`](https://github.com/xochi-fi/xochi-sdk) with typed input builders and automatic validation.
 
 ## Retroactive flagging
 

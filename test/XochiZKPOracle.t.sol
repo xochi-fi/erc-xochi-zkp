@@ -1335,6 +1335,61 @@ contract XochiZKPOracleTest is Test {
     }
 
     // -------------------------------------------------------------------------
+    // Per-proof-type pause
+    // -------------------------------------------------------------------------
+
+    function test_pauseProofType_blocksSubmitCompliance() public {
+        vm.prank(owner);
+        oracle.pauseProofType(ProofTypes.COMPLIANCE);
+
+        vm.prank(alice);
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPOracle.ProofTypePaused.selector, ProofTypes.COMPLIANCE));
+        oracle.submitCompliance(0, ProofTypes.COMPLIANCE, _dummyProof(), _complianceInputs(), DEFAULT_PROVIDER_SET_HASH);
+    }
+
+    function test_pauseProofType_allowsOtherTypes() public {
+        vm.prank(owner);
+        oracle.pauseProofType(ProofTypes.RISK_SCORE);
+
+        // COMPLIANCE should still work (stub verifier passes)
+        vm.prank(alice);
+        oracle.submitCompliance(0, ProofTypes.COMPLIANCE, _dummyProof(), _complianceInputs(), DEFAULT_PROVIDER_SET_HASH);
+    }
+
+    function test_pauseProofType_allowsCheckCompliance() public {
+        vm.prank(owner);
+        oracle.pauseProofType(ProofTypes.COMPLIANCE);
+
+        // Read functions should still work
+        (bool valid,) = oracle.checkCompliance(alice, 0);
+        assertFalse(valid);
+    }
+
+    function test_unpauseProofType_resumesSubmissions() public {
+        vm.startPrank(owner);
+        oracle.pauseProofType(ProofTypes.COMPLIANCE);
+        oracle.unpauseProofType(ProofTypes.COMPLIANCE);
+        vm.stopPrank();
+
+        // After unpausing, submission should succeed (stub verifier passes)
+        vm.prank(alice);
+        oracle.submitCompliance(0, ProofTypes.COMPLIANCE, _dummyProof(), _complianceInputs(), DEFAULT_PROVIDER_SET_HASH);
+    }
+
+    function test_pauseProofType_revert_notOwner() public {
+        vm.prank(alice);
+        vm.expectRevert(Ownable2Step.Unauthorized.selector);
+        oracle.pauseProofType(ProofTypes.COMPLIANCE);
+    }
+
+    function test_isProofTypePaused() public {
+        assertFalse(oracle.isProofTypePaused(ProofTypes.COMPLIANCE));
+        vm.prank(owner);
+        oracle.pauseProofType(ProofTypes.COMPLIANCE);
+        assertTrue(oracle.isProofTypePaused(ProofTypes.COMPLIANCE));
+    }
+
+    // -------------------------------------------------------------------------
     // Config history bounds
     // -------------------------------------------------------------------------
 

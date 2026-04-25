@@ -44,6 +44,11 @@ contract XochiZKPVerifierTest is Test {
         vm.stopPrank();
     }
 
+    /// @dev Deploy a fresh StubVerifier (passes code existence check)
+    function _newStub() internal returns (address) {
+        return address(new StubVerifier(true));
+    }
+
     /// @dev Upgrade a verifier via the timelock: propose, warp, execute
     function _upgradeVerifier(uint8 proofType, address newVerifier) internal {
         vm.prank(owner);
@@ -199,7 +204,7 @@ contract XochiZKPVerifierTest is Test {
 
     function test_setVerifierInitial_fresh() public {
         XochiZKPVerifier fresh = new XochiZKPVerifier(owner);
-        address newVerifier = makeAddr("newVerifier");
+        address newVerifier = _newStub();
         vm.prank(owner);
         fresh.setVerifierInitial(ProofTypes.COMPLIANCE, newVerifier);
         assertEq(fresh.getVerifier(ProofTypes.COMPLIANCE), newVerifier);
@@ -225,12 +230,27 @@ contract XochiZKPVerifierTest is Test {
         verifier.setVerifierInitial(0x07, address(passingVerifier));
     }
 
+    function test_setVerifierInitial_revert_notAContract() public {
+        XochiZKPVerifier fresh = new XochiZKPVerifier(owner);
+        address eoa = makeAddr("eoa");
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPVerifier.NotAContract.selector, eoa));
+        fresh.setVerifierInitial(ProofTypes.COMPLIANCE, eoa);
+    }
+
+    function test_proposeVerifier_revert_notAContract() public {
+        address eoa = makeAddr("eoa");
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPVerifier.NotAContract.selector, eoa));
+        verifier.proposeVerifier(ProofTypes.COMPLIANCE, eoa);
+    }
+
     // -------------------------------------------------------------------------
     // Admin: proposeVerifier / executeVerifierUpdate / cancelVerifierProposal
     // -------------------------------------------------------------------------
 
     function test_proposeVerifier_setsProposal() public {
-        address newVerifier = makeAddr("newVerifier");
+        address newVerifier = _newStub();
         vm.prank(owner);
         verifier.proposeVerifier(ProofTypes.COMPLIANCE, newVerifier);
 
@@ -240,13 +260,13 @@ contract XochiZKPVerifierTest is Test {
     }
 
     function test_executeVerifierUpdate_afterTimelock() public {
-        address newVerifier = makeAddr("newVerifier");
+        address newVerifier = _newStub();
         _upgradeVerifier(ProofTypes.COMPLIANCE, newVerifier);
         assertEq(verifier.getVerifier(ProofTypes.COMPLIANCE), newVerifier);
     }
 
     function test_executeVerifierUpdate_revert_beforeTimelock() public {
-        address newVerifier = makeAddr("newVerifier");
+        address newVerifier = _newStub();
         vm.prank(owner);
         verifier.proposeVerifier(ProofTypes.COMPLIANCE, newVerifier);
 
@@ -261,7 +281,7 @@ contract XochiZKPVerifierTest is Test {
     }
 
     function test_executeVerifierUpdate_exactBoundary() public {
-        address newVerifier = makeAddr("newVerifier");
+        address newVerifier = _newStub();
         uint256 proposeTime = block.timestamp;
         vm.prank(owner);
         verifier.proposeVerifier(ProofTypes.COMPLIANCE, newVerifier);
@@ -273,7 +293,7 @@ contract XochiZKPVerifierTest is Test {
     }
 
     function test_cancelVerifierProposal() public {
-        address newVerifier = makeAddr("newVerifier");
+        address newVerifier = _newStub();
         vm.prank(owner);
         verifier.proposeVerifier(ProofTypes.COMPLIANCE, newVerifier);
 
@@ -292,8 +312,8 @@ contract XochiZKPVerifierTest is Test {
     }
 
     function test_proposeVerifier_revert_alreadyPending() public {
-        address v1 = makeAddr("v1");
-        address v2 = makeAddr("v2");
+        address v1 = _newStub();
+        address v2 = _newStub();
         vm.prank(owner);
         verifier.proposeVerifier(ProofTypes.COMPLIANCE, v1);
 
@@ -309,7 +329,7 @@ contract XochiZKPVerifierTest is Test {
     }
 
     function test_executeVerifierUpdate_emitsEvent() public {
-        address newVerifier = makeAddr("newVerifier");
+        address newVerifier = _newStub();
         vm.prank(owner);
         verifier.proposeVerifier(ProofTypes.COMPLIANCE, newVerifier);
 
@@ -321,7 +341,7 @@ contract XochiZKPVerifierTest is Test {
     }
 
     function test_proposeVerifier_emitsEvent() public {
-        address newVerifier = makeAddr("newVerifier");
+        address newVerifier = _newStub();
         uint256 readyAt = block.timestamp + 24 hours;
         vm.prank(owner);
         vm.expectEmit(true, true, true, true);
@@ -409,7 +429,7 @@ contract XochiZKPVerifierTest is Test {
         assertEq(verifier.getVerifierAtVersion(ProofTypes.COMPLIANCE, 1), address(passingVerifier));
 
         // Upgrade to version 2 via timelock
-        address v2 = makeAddr("v2Verifier");
+        address v2 = _newStub();
         _upgradeVerifier(ProofTypes.COMPLIANCE, v2);
 
         assertEq(verifier.getVerifierVersion(ProofTypes.COMPLIANCE), 2);
@@ -642,6 +662,93 @@ contract XochiZKPVerifierTest is Test {
         vm.expectEmit(false, false, false, true);
         emit Pausable.Unpaused(owner);
         verifier.unpause();
+    }
+
+    // -------------------------------------------------------------------------
+    // Per-proof-type pause
+    // -------------------------------------------------------------------------
+
+    function test_pauseProofType_blocksVerifyProof() public {
+        vm.prank(owner);
+        verifier.pauseProofType(ProofTypes.COMPLIANCE);
+
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPVerifier.ProofTypePaused.selector, ProofTypes.COMPLIANCE));
+        verifier.verifyProof(ProofTypes.COMPLIANCE, _dummyProof(), _complianceInputs());
+    }
+
+    function test_pauseProofType_allowsOtherTypes() public {
+        vm.prank(owner);
+        verifier.pauseProofType(ProofTypes.COMPLIANCE);
+
+        // RISK_SCORE should still work
+        assertTrue(verifier.verifyProof(ProofTypes.RISK_SCORE, _dummyProof(), _riskScoreInputs()));
+    }
+
+    function test_pauseProofType_blocksVerifyProofAtVersion() public {
+        vm.prank(owner);
+        verifier.pauseProofType(ProofTypes.COMPLIANCE);
+
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPVerifier.ProofTypePaused.selector, ProofTypes.COMPLIANCE));
+        verifier.verifyProofAtVersion(ProofTypes.COMPLIANCE, 1, _dummyProof(), _complianceInputs());
+    }
+
+    function test_unpauseProofType_resumesVerification() public {
+        vm.startPrank(owner);
+        verifier.pauseProofType(ProofTypes.COMPLIANCE);
+        verifier.unpauseProofType(ProofTypes.COMPLIANCE);
+        vm.stopPrank();
+
+        assertTrue(verifier.verifyProof(ProofTypes.COMPLIANCE, _dummyProof(), _complianceInputs()));
+    }
+
+    function test_pauseProofType_revert_alreadyPaused() public {
+        vm.startPrank(owner);
+        verifier.pauseProofType(ProofTypes.COMPLIANCE);
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPVerifier.ProofTypePaused.selector, ProofTypes.COMPLIANCE));
+        verifier.pauseProofType(ProofTypes.COMPLIANCE);
+        vm.stopPrank();
+    }
+
+    function test_unpauseProofType_revert_notPaused() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(XochiZKPVerifier.ProofTypeNotPaused.selector, ProofTypes.COMPLIANCE));
+        verifier.unpauseProofType(ProofTypes.COMPLIANCE);
+    }
+
+    function test_pauseProofType_revert_notOwner() public {
+        vm.prank(alice);
+        vm.expectRevert(Ownable2Step.Unauthorized.selector);
+        verifier.pauseProofType(ProofTypes.COMPLIANCE);
+    }
+
+    function test_pauseProofType_revert_invalidProofType() public {
+        vm.prank(owner);
+        vm.expectRevert(abi.encodeWithSelector(ProofTypes.InvalidProofType.selector, 0x07));
+        verifier.pauseProofType(0x07);
+    }
+
+    function test_isProofTypePaused() public {
+        assertFalse(verifier.isProofTypePaused(ProofTypes.COMPLIANCE));
+        vm.prank(owner);
+        verifier.pauseProofType(ProofTypes.COMPLIANCE);
+        assertTrue(verifier.isProofTypePaused(ProofTypes.COMPLIANCE));
+    }
+
+    function test_pauseProofType_emitsEvent() public {
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, false);
+        emit XochiZKPVerifier.ProofTypePausedEvent(ProofTypes.COMPLIANCE, owner);
+        verifier.pauseProofType(ProofTypes.COMPLIANCE);
+    }
+
+    function test_unpauseProofType_emitsEvent() public {
+        vm.prank(owner);
+        verifier.pauseProofType(ProofTypes.COMPLIANCE);
+
+        vm.prank(owner);
+        vm.expectEmit(true, true, false, false);
+        emit XochiZKPVerifier.ProofTypeUnpausedEvent(ProofTypes.COMPLIANCE, owner);
+        verifier.unpauseProofType(ProofTypes.COMPLIANCE);
     }
 
     // -------------------------------------------------------------------------

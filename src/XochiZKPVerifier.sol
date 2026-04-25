@@ -24,6 +24,9 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
     /// @notice Revoked verifier versions (cannot be used via verifyProofAtVersion)
     mapping(uint8 proofType => mapping(uint256 version => bool revoked)) internal _revokedVersions;
 
+    /// @notice Per-proof-type pause state for surgical incident response
+    mapping(uint8 proofType => bool isPaused) internal _proofTypePaused;
+
     struct VerifierProposal {
         address newVerifier;
         uint256 proposedAt;
@@ -38,6 +41,9 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
     error VersionRevoked(uint8 proofType, uint256 version);
     error CannotRevokeCurrentVersion(uint8 proofType);
     error AlreadyRevoked(uint8 proofType, uint256 version);
+    error NotAContract(address addr);
+    error ProofTypePaused(uint8 proofType);
+    error ProofTypeNotPaused(uint8 proofType);
     error BatchLengthMismatch();
     error EmptyBatch();
     error BatchTooLarge();
@@ -52,6 +58,8 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
     event VerifierProposed(uint8 indexed proofType, address indexed newVerifier, uint256 readyAt);
     event VerifierProposalCancelled(uint8 indexed proofType, address indexed cancelledVerifier);
     event VerifierVersionRevoked(uint8 indexed proofType, uint256 indexed version, address indexed verifier);
+    event ProofTypePausedEvent(uint8 indexed proofType, address indexed account);
+    event ProofTypeUnpausedEvent(uint8 indexed proofType, address indexed account);
 
     constructor(address initialOwner) {
         if (initialOwner == address(0)) revert ZeroAddress();
@@ -108,6 +116,7 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
         whenNotPaused
         returns (bool valid)
     {
+        if (_proofTypePaused[proofType]) revert ProofTypePaused(proofType);
         if (_revokedVersions[proofType][version]) revert VersionRevoked(proofType, version);
         address verifier = _getVerifierAtVersion(proofType, version);
         ProofTypes.validatePublicInputs(proofType, publicInputs);
@@ -137,6 +146,7 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
     function setVerifierInitial(uint8 proofType, address verifier) external onlyOwner {
         if (!ProofTypes.isValidProofType(proofType)) revert ProofTypes.InvalidProofType(proofType);
         if (verifier == address(0)) revert ZeroAddress();
+        if (verifier.code.length == 0) revert NotAContract(verifier);
         if (_verifiers[proofType] != address(0)) revert VerifierAlreadySet(proofType);
 
         _verifiers[proofType] = verifier;
@@ -150,6 +160,7 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
     function proposeVerifier(uint8 proofType, address newVerifier) external onlyOwner {
         if (!ProofTypes.isValidProofType(proofType)) revert ProofTypes.InvalidProofType(proofType);
         if (newVerifier == address(0)) revert ZeroAddress();
+        if (newVerifier.code.length == 0) revert NotAContract(newVerifier);
         if (_pendingVerifiers[proofType].proposedAt != 0) revert ProposalAlreadyPending(proofType);
 
         _pendingVerifiers[proofType] = VerifierProposal({newVerifier: newVerifier, proposedAt: block.timestamp});
@@ -218,18 +229,43 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
         return _revokedVersions[proofType][version];
     }
 
-    /// @notice Pause the contract, blocking proof verification
+    /// @notice Pause the contract, blocking all proof verification
     function pause() external override onlyOwner {
         if (paused) revert ContractPaused();
         paused = true;
         emit Paused(msg.sender);
     }
 
-    /// @notice Unpause the contract, resuming proof verification
+    /// @notice Unpause the contract, resuming all proof verification
     function unpause() external override onlyOwner {
         if (!paused) revert ContractNotPaused();
         paused = false;
         emit Unpaused(msg.sender);
+    }
+
+    /// @notice Pause a single proof type (surgical response)
+    /// @param proofType The proof type to pause (0x01-0x06)
+    function pauseProofType(uint8 proofType) external onlyOwner {
+        if (!ProofTypes.isValidProofType(proofType)) revert ProofTypes.InvalidProofType(proofType);
+        if (_proofTypePaused[proofType]) revert ProofTypePaused(proofType);
+        _proofTypePaused[proofType] = true;
+        emit ProofTypePausedEvent(proofType, msg.sender);
+    }
+
+    /// @notice Unpause a single proof type
+    /// @param proofType The proof type to unpause (0x01-0x06)
+    function unpauseProofType(uint8 proofType) external onlyOwner {
+        if (!ProofTypes.isValidProofType(proofType)) revert ProofTypes.InvalidProofType(proofType);
+        if (!_proofTypePaused[proofType]) revert ProofTypeNotPaused(proofType);
+        _proofTypePaused[proofType] = false;
+        emit ProofTypeUnpausedEvent(proofType, msg.sender);
+    }
+
+    /// @notice Check if a specific proof type is paused
+    /// @param proofType The proof type to check
+    /// @return Whether the proof type is paused
+    function isProofTypePaused(uint8 proofType) external view returns (bool) {
+        return _proofTypePaused[proofType];
     }
 
     // -------------------------------------------------------------------------
@@ -243,6 +279,7 @@ contract XochiZKPVerifier is IXochiZKPVerifier, Ownable2Step, Pausable {
         returns (bool valid)
     {
         if (!ProofTypes.isValidProofType(proofType)) revert ProofTypes.InvalidProofType(proofType);
+        if (_proofTypePaused[proofType]) revert ProofTypePaused(proofType);
 
         address verifier = _verifiers[proofType];
         if (verifier == address(0)) revert VerifierNotSet(proofType);

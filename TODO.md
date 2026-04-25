@@ -97,8 +97,8 @@
 
 ### Medium priority
 
-- [ ] **setVerifier code existence check**: `setVerifier(proofType, addr)` accepts any address, including EOAs or contracts without `verify()`. Add `addr.code.length > 0` check. Consider a dry-run verification call.
-- [ ] **Per-proof-type pause**: Currently pause() stops all proof types. A compromised verifier for one type requires pausing the entire system. Add `pauseProofType(uint8)` / `unpauseProofType(uint8)` for surgical response.
+- [x] **Verifier code existence check**: `setVerifierInitial` and `proposeVerifier` reject EOAs via `addr.code.length > 0` (`NotAContract` error).
+- [x] **Per-proof-type pause**: `pauseProofType(uint8)` / `unpauseProofType(uint8)` on both Verifier and Oracle. Surgical response without stopping the entire system.
 - [x] **Emergency verifier revocation**: `revokeVerifierVersion(proofType, version)` blocks compromised versions from `verifyProofAtVersion`. Cannot revoke current version. No timelock (emergency action).
 - [ ] **Formal verification of jurisdiction thresholds**: The Noir `get_high_threshold()` and Solidity `JurisdictionConfig.getThresholds()` must match exactly. Currently verified by inspection only. Write a cross-validation test (forge ffi calling nargo to compute thresholds, compare against Solidity).
 - [ ] **Config history cleanup**: `MAX_CONFIG_HISTORY = 256` is a hard cap with no cleanup mechanism. After 256 updates, the Oracle is permanently stuck. Add `compactConfigHistory()` that removes revoked entries, or increase the cap.

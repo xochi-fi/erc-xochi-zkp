@@ -54,6 +54,9 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
     ///      by ensuring the reporting_threshold in a PATTERN proof matches a registered value.
     mapping(bytes32 threshold => bool valid) internal _validReportingThresholds;
 
+    /// @notice Per-proof-type pause state for surgical incident response
+    mapping(uint8 proofType => bool isPaused) internal _proofTypePaused;
+
     error ProofVerificationFailed();
     error ProofAlreadyUsed(bytes32 proofHash);
     error InvalidTTL();
@@ -74,6 +77,8 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
     error BatchTooLarge();
     error TimeWindowTooSmall(uint256 timeWindow, uint256 minimum);
     error ProofTimestampStale(uint256 proofTimestamp, uint256 blockTimestamp);
+    error ProofTypePaused(uint8 proofType);
+    error ProofTypeNotPaused(uint8 proofType);
 
     /// @notice Maximum number of entries in the config history array
     uint256 public constant MAX_CONFIG_HISTORY = 256;
@@ -118,6 +123,7 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         bytes calldata publicInputs,
         bytes32 providerSetHash
     ) external whenNotPaused returns (ComplianceAttestation memory attestation) {
+        if (_proofTypePaused[proofType]) revert ProofTypePaused(proofType);
         JurisdictionConfig.validateJurisdiction(jurisdictionId);
 
         // Validate that caller-supplied parameters match what's in the proof's public inputs.
@@ -372,19 +378,47 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         return _validReportingThresholds[threshold];
     }
 
-    /// @notice Pause the contract, blocking new submissions
+    /// @notice Pause the contract, blocking all new submissions
     function pause() external override onlyOwner {
         if (paused) revert ContractPaused();
         paused = true;
         emit Paused(msg.sender);
     }
 
-    /// @notice Unpause the contract, resuming submissions
+    /// @notice Unpause the contract, resuming all submissions
     function unpause() external override onlyOwner {
         if (!paused) revert ContractNotPaused();
         paused = false;
         emit Unpaused(msg.sender);
     }
+
+    /// @notice Pause submissions for a single proof type (surgical response)
+    /// @param proofType The proof type to pause (0x01-0x06)
+    function pauseProofType(uint8 proofType) external onlyOwner {
+        if (!ProofTypes.isValidProofType(proofType)) revert ProofTypes.InvalidProofType(proofType);
+        if (_proofTypePaused[proofType]) revert ProofTypePaused(proofType);
+        _proofTypePaused[proofType] = true;
+        emit ProofTypePausedEvent(proofType, msg.sender);
+    }
+
+    /// @notice Unpause submissions for a single proof type
+    /// @param proofType The proof type to unpause (0x01-0x06)
+    function unpauseProofType(uint8 proofType) external onlyOwner {
+        if (!ProofTypes.isValidProofType(proofType)) revert ProofTypes.InvalidProofType(proofType);
+        if (!_proofTypePaused[proofType]) revert ProofTypeNotPaused(proofType);
+        _proofTypePaused[proofType] = false;
+        emit ProofTypeUnpausedEvent(proofType, msg.sender);
+    }
+
+    /// @notice Check if a specific proof type is paused
+    /// @param proofType The proof type to check
+    /// @return Whether the proof type is paused
+    function isProofTypePaused(uint8 proofType) external view returns (bool) {
+        return _proofTypePaused[proofType];
+    }
+
+    event ProofTypePausedEvent(uint8 indexed proofType, address indexed account);
+    event ProofTypeUnpausedEvent(uint8 indexed proofType, address indexed account);
 
     // -------------------------------------------------------------------------
     // Internal
@@ -399,6 +433,7 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         bytes calldata inputs,
         bytes32 providerSetHash
     ) internal returns (ComplianceAttestation memory attestation) {
+        if (_proofTypePaused[proofType]) revert ProofTypePaused(proofType);
         if (proofType == ProofTypes.COMPLIANCE) {
             _validateComplianceInputs(jurisdictionId, providerSetHash, inputs);
         } else if (proofType == ProofTypes.RISK_SCORE) {

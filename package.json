@@ -6,7 +6,7 @@
     "test:sdk": "vitest run --config vitest.config.ts"
   },
   "devDependencies": {
-    "@xochi/sdk": "github:xochi-fi/xochi-sdk",
+    "@xochi/sdk": "github:xochi-fi/xochi-sdk#v0.1.1",
     "@noir-lang/noir_js": "1.0.0-beta.20",
     "@aztec/bb.js": "4.0.0-nightly.20260120",
     "viem": "^2.21.0",

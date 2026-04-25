@@ -1,4 +1,4 @@
-.PHONY: build test test-sol test-noir test-sdk test-xochi-sdk test-all fmt fmt-check lint snapshot benchmark fixtures clean help
+.PHONY: build test test-sol test-noir test-sdk test-xochi-sdk test-all fmt fmt-check lint slither snapshot benchmark fixtures clean help
 
 FOUNDRY_BIN := $(HOME)/.config/.foundry/bin
 FORGE := $(FOUNDRY_BIN)/forge
@@ -48,6 +48,11 @@ fmt-check: ## Check Solidity formatting (CI)
 	$(FORGE) fmt --check
 
 lint: fmt-check ## Lint (currently fmt-check only)
+
+slither: ## Run Slither static analysis (requires slither-analyzer)
+	@mv src/generated /tmp/xochi-generated-backup 2>/dev/null || true
+	@slither . || (mv /tmp/xochi-generated-backup src/generated 2>/dev/null; exit 1)
+	@mv /tmp/xochi-generated-backup src/generated 2>/dev/null || true
 
 # ── Fixtures & Gas ───────────────────────────────────────────
 

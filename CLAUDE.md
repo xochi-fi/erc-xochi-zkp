@@ -15,13 +15,14 @@ ERC Xochi ZKP: a standard for zero-knowledge compliance proofs on Ethereum. User
 
 ```bash
 make build                     # compile contracts + circuits
-make test                      # run Solidity tests (200, includes SettlementRegistry)
-make test-noir                 # run Noir circuit tests (workspace)
+make test                      # run Solidity tests (327)
+make test-noir                 # run Noir circuit tests (77, workspace)
 make test-sdk                  # run TS consumer SDK tests (28 + 7 todo)
 make test-all                  # run all tests
 make fmt                       # format Solidity
 make fmt-check                 # check formatting (CI/pre-commit)
 make lint                      # lint (fmt-check)
+make slither                   # run Slither static analysis
 make fixtures                  # regenerate proof fixtures + verifiers
 make snapshot                  # capture gas baseline
 make help                      # list all targets
@@ -35,7 +36,7 @@ cd circuits/<name> && nargo test           # run a single circuit's tests
 ## Contract Structure
 
 - `src/interfaces/`:IXochiZKPVerifier, IXochiZKPOracle, IUltraVerifier, ISettlementRegistry
-- `src/libraries/`:ProofTypes (encoding + alignment), JurisdictionConfig (thresholds)
+- `src/libraries/`:ProofTypes (encoding + alignment), JurisdictionConfig (thresholds), EIP712Attestation (typed data hashing)
 - `src/`:XochiZKPVerifier (routes to per-type verifiers), XochiZKPOracle (attestation storage + input validation + registries), SettlementRegistry (immutable, links split settlement proofs to tradeId, references Oracle via getHistoricalProof)
 - `src/generated/`:auto-generated UltraHonk verifiers (do not edit, regenerate via `scripts/generate-fixtures.sh`)
 - `test/`:Foundry tests (unit, fuzz, invariant, integration with real proofs)

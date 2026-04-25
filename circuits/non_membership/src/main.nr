@@ -224,6 +224,43 @@ fn test_main_revert_element_equals_low_leaf() {
     );
 }
 
+#[test]
+fn test_ordering_fails_element_at_u64_max() {
+    // Element at u64::MAX has no valid high neighbor within u64 range
+    let low: u64 = 18446744073709551614; // 2^64 - 2
+    let elem: u64 = 18446744073709551615; // 2^64 - 1
+    let high: u64 = 18446744073709551615; // can't exceed u64::MAX
+    assert(!((low < elem) & (elem < high)));
+}
+
+#[test(should_fail_with = "Non-membership result mismatch")]
+fn test_main_revert_element_at_u64_max() {
+    // Element at MAX_ELEMENT_VALUE (2^64-1) can never be proven non-member:
+    // no u64 value satisfies elem < high_leaf, so ordering always fails.
+    let element: Field = 18446744073709551615;
+    let low_leaf: Field = 18446744073709551614;
+    let high_leaf: Field = 18446744073709551615; // same as element (no higher u64)
+    let set_id: Field = 1;
+
+    let low_leaf_hash = hash2(low_leaf, set_id);
+    let high_leaf_hash = hash2(high_leaf, set_id);
+
+    let mut low_path: [Field; 20] = [0; 20];
+    low_path[0] = high_leaf_hash;
+
+    let mut high_path: [Field; 20] = [0; 20];
+    high_path[0] = low_leaf_hash;
+
+    let root = compute_merkle_root(low_leaf_hash, 0, low_path);
+
+    main(
+        element, low_leaf, high_leaf,
+        0, low_path,
+        1, high_path,
+        root, set_id, 1700000000, true, 0xdead,
+    );
+}
+
 #[test(should_fail_with = "Non-membership result mismatch")]
 fn test_main_revert_element_equals_high_leaf() {
     let element: Field = 100;

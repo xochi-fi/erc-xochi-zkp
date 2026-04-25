@@ -46,6 +46,30 @@ jobs:
       - name: Check gas snapshot
         run: FOUNDRY_PROFILE=default forge snapshot --check --tolerance 2 --no-match-contract InvariantTest
 
+  slither:
+    name: Slither
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install Foundry
+        uses: foundry-rs/foundry-toolchain@v1
+
+      - name: Move generated verifiers
+        run: mv src/generated /tmp/xochi-generated-backup
+
+      - name: Run Slither
+        uses: crytic/slither-action@v0.4.0
+        with:
+          fail-on: high
+          slither-args: --filter-paths "test/,script/,lib/"
+
+      - name: Restore generated verifiers
+        if: always()
+        run: mv /tmp/xochi-generated-backup src/generated
+
   circuits:
     name: Noir Circuits
     runs-on: ubuntu-latest

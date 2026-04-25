@@ -96,6 +96,8 @@ interface IXochiZKPOracle {
     function getProofType(bytes32 proofHash) external view returns (uint8 proofType);
 
     /// @notice Get all attestation hashes for a subject in a jurisdiction
+    /// @dev Unbounded return -- may exceed gas/RPC limits for subjects with many
+    ///      attestations. Use getAttestationHistoryPaginated() for production.
     /// @param subject The address to query
     /// @param jurisdictionId The jurisdiction
     /// @return proofHashes Array of proof hashes for historical lookup

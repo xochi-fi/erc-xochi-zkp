@@ -8,6 +8,7 @@ import {ProofTypes} from "./libraries/ProofTypes.sol";
 import {JurisdictionConfig} from "./libraries/JurisdictionConfig.sol";
 import {Ownable2Step} from "./libraries/Ownable2Step.sol";
 import {Pausable} from "./libraries/Pausable.sol";
+import {EIP712Attestation} from "./libraries/EIP712Attestation.sol";
 
 /// @title XochiZKPOracle -- Reference implementation of the Xochi ZKP compliance oracle
 /// @notice Records compliance attestations backed by verified ZK proofs and supports
@@ -79,6 +80,8 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
     error ProofTimestampStale(uint256 proofTimestamp, uint256 blockTimestamp);
     error ProofTypePaused(uint8 proofType);
     error ProofTypeNotPaused(uint8 proofType);
+
+    event ConfigHistoryCompacted(uint256 entriesRemoved, uint256 newLength);
 
     /// @notice Maximum number of entries in the config history array
     uint256 public constant MAX_CONFIG_HISTORY = 256;
@@ -226,9 +229,14 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
     }
 
     /// @inheritdoc IXochiZKPOracle
-    /// @dev Returns the entire history array. For subjects with many attestations this
-    ///      may exceed RPC response limits. Prefer getAttestationHistoryPaginated() for
-    ///      production use.
+    /// @dev WARNING: Returns an unbounded array. Gas cost scales linearly with the
+    ///      number of attestations for the given (subject, jurisdictionId) pair.
+    ///      A subject could self-attest many times (each with a unique proof), growing
+    ///      the array until this view exceeds block gas limits or RPC response size.
+    ///      This does NOT affect other users (submitter pays their own gas), but can
+    ///      make this view unusable for the affected subject.
+    ///      For production integrations, use getAttestationHistoryPaginated() which
+    ///      supports offset/limit pagination and is safe regardless of history size.
     function getAttestationHistory(address subject, uint8 jurisdictionId)
         external
         view
@@ -279,6 +287,19 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         return _attestationTTL;
     }
 
+    /// @notice EIP-712 domain separator for this oracle instance
+    /// @dev Computed at call time using block.chainid (fork-safe, not cached)
+    function DOMAIN_SEPARATOR() external view returns (bytes32) {
+        return EIP712Attestation.buildDomainSeparator(address(this));
+    }
+
+    /// @notice EIP-712 struct hash of a ComplianceAttestation
+    /// @param att The attestation to hash
+    /// @return structHash The EIP-712 struct hash
+    function hashAttestation(ComplianceAttestation memory att) external pure returns (bytes32) {
+        return EIP712Attestation.hashAttestation(att);
+    }
+
     // -------------------------------------------------------------------------
     // Admin
     // -------------------------------------------------------------------------
@@ -323,6 +344,44 @@ contract XochiZKPOracle is IXochiZKPOracle, Ownable2Step, Pausable {
         if (configHash == _providerConfigHash) revert CannotRevokeCurrentConfig();
         _validConfigs[configHash] = false;
         emit ConfigRevoked(configHash);
+    }
+
+    /// @notice Remove revoked entries from config history to free slots
+    /// @dev Preserves ordering of remaining entries. Current config (last entry) is
+    ///      never revoked (CannotRevokeCurrentConfig guard), so it always survives.
+    ///      Gas cost scales with history length (up to ~2.5M at 256 entries).
+    /// @return removed Number of entries removed
+    function compactConfigHistory() external onlyOwner returns (uint256 removed) {
+        uint256 len = _configHistory.length;
+        uint256 writeIdx;
+
+        for (uint256 readIdx; readIdx < len;) {
+            bytes32 cfg = _configHistory[readIdx];
+            if (_validConfigs[cfg]) {
+                if (writeIdx != readIdx) {
+                    _configHistory[writeIdx] = cfg;
+                }
+                unchecked {
+                    ++writeIdx;
+                }
+            }
+            unchecked {
+                ++readIdx;
+            }
+        }
+
+        removed = len - writeIdx;
+
+        for (uint256 i; i < removed;) {
+            _configHistory.pop();
+            unchecked {
+                ++i;
+            }
+        }
+
+        if (removed > 0) {
+            emit ConfigHistoryCompacted(removed, writeIdx);
+        }
     }
 
     /// @notice Check if a config hash is valid (current or historical, not revoked)

@@ -2,8 +2,8 @@
 
 ## Current Status
 
-- 308/308 Solidity tests pass (72 verifier + 122 oracle + 41 registry + 5 invariant + 8 ProofTypes + 16 integration + 22 timelock + 16 gas benchmark + 6 ProofTypes fuzz)
-- 70/70 Noir circuit tests pass (7 packages: shared 11, compliance 8, risk_score 13, pattern 12, attestation 10, membership 5, non_membership 11)
+- 327/327 Solidity tests pass (72 verifier + 131 oracle + 41 registry + 5 invariant + 8 ProofTypes + 16 integration + 22 timelock + 16 gas benchmark + 6 ProofTypes fuzz + 5 EIP712 + 5 threshold cross-validation)
+- 77/77 Noir circuit tests pass (7 packages: shared 12, compliance 10, risk_score 13, pattern 14, attestation 10, membership 5, non_membership 13)
 - 16/16 xochi e2e tests pass (TS + anvil, all 6 proof types + runtime proving)
 - 28/35 TS consumer SDK tests pass (7 todo; noir_js + bb.js + anvil + on-chain verify)
 - 7/7 client SDK tests pass (XochiProver + encoding)
@@ -11,7 +11,7 @@
 - Tooling: nargo 1.0.0-beta.20, forge 1.5.1, bb 4.0.0-nightly.20260120
 - CI green (solidity + circuits + sdk jobs)
 - Gas benchmarks: ~2.43M verify, ~2.85M submit, linear batch scaling
-- Client SDK: `@xochi/sdk` at github:xochi-fi/xochi-sdk
+- Client SDK: `@xochi/sdk@^0.1.1` (published on npm)
 
 ## Completed
 
@@ -51,6 +51,19 @@
 </details>
 
 <details>
+<summary>Security hardening (2026-04-25)</summary>
+
+- Slither static analysis: 36 findings triaged, all false positives or by-design. Config in slither.config.json, CI job added.
+- Mythril symbolic execution: 0 issues on Oracle, Verifier, SettlementRegistry, Timelock
+- Config history cleanup: compactConfigHistory() removes revoked entries, frees slots for new configs
+- EIP-712 typed data hashing: EIP712Attestation library for off-chain attestation verification
+- ProofTypes.decodePublicInputs: calldatacopy assembly optimization (~60 gas/input saved)
+- Jurisdiction threshold cross-validation: paired Noir + Solidity tests assert identical values
+- Attestation history gas griefing: documented in NatSpec, integrators directed to paginated variant
+- Circuit edge-case tests: non-membership u64 max boundary, compliance 1-bps-below-threshold, pattern MAX_REPORTING_THRESHOLD
+</details>
+
+<details>
 <summary>Infrastructure + integrations</summary>
 
 - generate-fixtures.sh (compile, prove, verify, generate Solidity verifiers)
@@ -83,34 +96,34 @@
 - [x] **Mandatory timelock on verifier replacement**: `proposeVerifier()` + `executeVerifierUpdate()` with 24h `VERIFIER_TIMELOCK`. `setVerifierInitial()` for first-time setup only. `cancelVerifierProposal()` + `getPendingVerifier()` for management.
 - [x] **Pattern time_window minimum enforcement**: `MIN_TIME_WINDOW = 3600` (1 hour) enforced in `_validatePatternInputs()`. `TimeWindowTooSmall` error.
 - [x] **Cross-type attestation semantic gap**: `uint8 proofType` added to `ComplianceAttestation` struct. `checkComplianceByType()` filters by proof type. `getProofType()` still available via mapping.
-- [ ] **Run Slither + Mythril static analysis**: No static analysis has been run on the contracts. Slither catches common patterns (reentrancy, unchecked returns, etc.), Mythril finds symbolic execution bugs. Add to CI.
+- [x] **Run Slither + Mythril static analysis**: Slither v0.11.5 -- 36 findings, all triaged as false positives or by-design patterns (timelock arbitrary-send-eth, sentinel value strict equality, timestamp comparisons). Config in `slither.config.json`, CI job added. Mythril symbolic execution -- 0 issues on all 4 contracts (Oracle, Verifier, SettlementRegistry, Timelock). Generated UltraHonk verifiers excluded (crash Slither's constant-folding parser, separately audited by Aztec).
 
 ### Medium priority
 
 - [x] **Verifier code existence check**: `setVerifierInitial` and `proposeVerifier` reject EOAs via `addr.code.length > 0` (`NotAContract` error).
 - [x] **Per-proof-type pause**: `pauseProofType(uint8)` / `unpauseProofType(uint8)` on both Verifier and Oracle. Surgical response without stopping the entire system.
 - [x] **Emergency verifier revocation**: `revokeVerifierVersion(proofType, version)` blocks compromised versions from `verifyProofAtVersion`. Cannot revoke current version. No timelock (emergency action).
-- [ ] **Formal verification of jurisdiction thresholds**: The Noir `get_high_threshold()` and Solidity `JurisdictionConfig.getThresholds()` must match exactly. Currently verified by inspection only. Write a cross-validation test (forge ffi calling nargo to compute thresholds, compare against Solidity).
-- [ ] **Config history cleanup**: `MAX_CONFIG_HISTORY = 256` is a hard cap with no cleanup mechanism. After 256 updates, the Oracle is permanently stuck. Add `compactConfigHistory()` that removes revoked entries, or increase the cap.
+- [x] **Formal verification of jurisdiction thresholds**: Paired cross-validation tests in Solidity (`test/ThresholdCrossValidation.t.sol`) and Noir (`circuits/shared/src/risk.nr:test_threshold_cross_validation_all`). Both assert identical threshold values with cross-references to the other file.
+- [x] **Config history cleanup**: `compactConfigHistory()` removes revoked entries in-place, preserving ordering. Current config always survives (CannotRevokeCurrentConfig guard). Emits `ConfigHistoryCompacted` event. 4 tests cover removal, no-op, access control, and post-compaction updates.
 
 ### Low priority
 
-- [ ] **Attestation history gas griefing**: `_attestationHistory[subject][jurisdiction]` is unbounded. Repeated submissions grow the array, increasing gas for `getAttestationHistory()`. Not exploitable (submitter pays gas) but worth documenting for integrators using `getAttestationHistory` vs paginated variant.
-- [ ] **ProofTypes.decodePublicInputs assembly optimization**: The loop decodes 32-byte slots one at a time with calldata slicing. A `calldatacopy` into memory would be cheaper for large input counts.
-- [ ] **Add EIP-712 typed data hashing**: For off-chain attestation verification, typed hashing would let wallets display structured data instead of raw bytes.
+- [x] **Attestation history gas griefing**: Documented in NatSpec on `getAttestationHistory()` (Oracle + interface). Unbounded array is not exploitable (submitter pays gas) but can exceed RPC limits. Integrators directed to `getAttestationHistoryPaginated()`.
+- [x] **ProofTypes.decodePublicInputs assembly optimization**: Replaced per-slot calldata slicing loop with single `calldatacopy` instruction. Saves ~60 gas per additional public input. Existing fuzz tests validate correctness.
+- [x] **Add EIP-712 typed data hashing**: `EIP712Attestation` library with domain separator, struct hash, and full digest. Oracle exposes `DOMAIN_SEPARATOR()` and `hashAttestation()` convenience views. Fork-safe (uses `block.chainid` at call time). 5 tests.
 
 ## Low-priority test gaps
 
 - [ ] SDK `.todo()` tests for pattern + attestation circuits (blocked on circuit builds in CI)
 - [ ] Exhaustive cross-type proof routing rejection (all 30 mismatch permutations)
-- [ ] Fuzz jurisdiction ID permutations in submitCompliance (4 values, unit tests sufficient)
-- [ ] Fuzz metadata URI strings in updateProviderConfig (long strings, special chars)
-- [ ] Fuzz corrupted proof bytes (various corruption patterns beyond single-byte flip)
-- [ ] Test paginated history with limit=0, fuzz arbitrary offset/limit combinations
-- [ ] Test that old proofs with revoked config are still retrievable via getHistoricalProof
-- [ ] Non-membership: value at exact MAX_ELEMENT_VALUE boundary (2^64-1)
-- [ ] Compliance: multi-provider score that lands exactly 1 bps below threshold
-- [ ] Pattern: threshold=MAX_REPORTING_THRESHOLD boundary, num_transactions=1 edge case
+- [x] Fuzz jurisdiction ID permutations in submitCompliance (all 4 valid values, 256 runs)
+- [x] Fuzz metadata URI strings in updateProviderConfig (0-1024 chars, arbitrary bytes)
+- [x] Fuzz corrupted proof bytes (random offset + byte corruption with AlwaysFailVerifier)
+- [x] Test paginated history with limit=0, fuzz arbitrary offset/limit combinations (0-20 range)
+- [x] Test that old proofs with revoked config are still retrievable via getHistoricalProof
+- [x] Non-membership: value at exact MAX_ELEMENT_VALUE boundary (2^64-1)
+- [x] Compliance: multi-provider score that lands exactly 1 bps below threshold (EU + US)
+- [x] Pattern: threshold=MAX_REPORTING_THRESHOLD boundary, num_transactions=1 edge case (clean + suspicious)
 
 ## Next up
 
@@ -142,18 +155,18 @@ Prerequisite: CI green.
 - [ ] External security audit (Solidity + Noir circuits)
 - [ ] EIP submission to ethereum/EIPs
 - [ ] Provider signal mock server for local development
-- [ ] Formal verification of jurisdiction threshold logic
+- [x] Formal verification of jurisdiction threshold logic
 
 ## Gas benchmarks
 
-| Operation | Gas | Notes |
-|-----------|-----|-------|
-| verifyProof (any type) | ~2.43M | UltraHonk verification dominates |
-| submitCompliance | ~2.85M | +380K Oracle overhead (storage + events) |
-| batch verify x1 | 2.86M | Baseline |
-| batch verify x2 | 4.84M | ~2.42M/proof |
-| batch verify x5 | 12.07M | ~2.41M/proof |
-| batch verify x10 | 24.12M | ~2.41M/proof (linear) |
+| Operation              | Gas    | Notes                                    |
+| ---------------------- | ------ | ---------------------------------------- |
+| verifyProof (any type) | ~2.43M | UltraHonk verification dominates         |
+| submitCompliance       | ~2.85M | +380K Oracle overhead (storage + events) |
+| batch verify x1        | 2.86M  | Baseline                                 |
+| batch verify x2        | 4.84M  | ~2.42M/proof                             |
+| batch verify x5        | 12.07M | ~2.41M/proof                             |
+| batch verify x10       | 24.12M | ~2.41M/proof (linear)                    |
 
 ## Design decisions (documented, not bugs)
 

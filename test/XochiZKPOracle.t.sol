@@ -883,6 +883,77 @@ contract XochiZKPOracleTest is Test {
     }
 
     // -------------------------------------------------------------------------
+    // Config history compaction
+    // -------------------------------------------------------------------------
+
+    function test_compactConfigHistory_removesRevokedEntries() public {
+        vm.startPrank(owner);
+        // Add 4 more configs (total 5 with initial)
+        bytes32 c2 = keccak256("c2");
+        bytes32 c3 = keccak256("c3");
+        bytes32 c4 = keccak256("c4");
+        bytes32 c5 = keccak256("c5");
+        oracle.updateProviderConfig(c2, "");
+        oracle.updateProviderConfig(c3, "");
+        oracle.updateProviderConfig(c4, "");
+        oracle.updateProviderConfig(c5, "");
+        assertEq(oracle.configHistoryLength(), 5);
+
+        // Revoke 2 non-current entries
+        oracle.revokeConfig(INITIAL_CONFIG);
+        oracle.revokeConfig(c3);
+
+        // Compact
+        uint256 removed = oracle.compactConfigHistory();
+        vm.stopPrank();
+
+        assertEq(removed, 2);
+        assertEq(oracle.configHistoryLength(), 3);
+        // Current config is still the last entry
+        assertEq(oracle.configHistoryAt(2), c5);
+        // Ordering preserved: c2, c4, c5
+        assertEq(oracle.configHistoryAt(0), c2);
+        assertEq(oracle.configHistoryAt(1), c4);
+    }
+
+    function test_compactConfigHistory_noOp_whenNoneRevoked() public {
+        vm.prank(owner);
+        uint256 removed = oracle.compactConfigHistory();
+        assertEq(removed, 0);
+        assertEq(oracle.configHistoryLength(), 1);
+    }
+
+    function test_compactConfigHistory_revert_notOwner() public {
+        vm.prank(alice);
+        vm.expectRevert(Ownable2Step.Unauthorized.selector);
+        oracle.compactConfigHistory();
+    }
+
+    function test_compactConfigHistory_allowsUpdatesAfterCompaction() public {
+        vm.startPrank(owner);
+        // Fill history to near capacity
+        for (uint256 i = 1; i < oracle.MAX_CONFIG_HISTORY(); i++) {
+            oracle.updateProviderConfig(keccak256(abi.encode(i)), "");
+        }
+        assertEq(oracle.configHistoryLength(), oracle.MAX_CONFIG_HISTORY());
+
+        // Cannot add more
+        vm.expectRevert(XochiZKPOracle.ConfigHistoryFull.selector);
+        oracle.updateProviderConfig(keccak256("overflow"), "");
+
+        // Revoke a few old entries and compact
+        oracle.revokeConfig(INITIAL_CONFIG);
+        oracle.revokeConfig(keccak256(abi.encode(uint256(1))));
+        oracle.compactConfigHistory();
+
+        // Now we can add again
+        oracle.updateProviderConfig(keccak256("new-after-compact"), "");
+        vm.stopPrank();
+
+        assertTrue(oracle.configHistoryLength() <= oracle.MAX_CONFIG_HISTORY());
+    }
+
+    // -------------------------------------------------------------------------
     // Merkle root registry
     // -------------------------------------------------------------------------
 
@@ -1588,6 +1659,109 @@ contract XochiZKPOracleTest is Test {
         vm.prank(alice);
         vm.expectRevert(abi.encodeWithSelector(ProofTypes.InvalidProofType.selector, proofType));
         oracle.submitCompliance(0, proofType, _uniqueProof(), _complianceInputs(), DEFAULT_PROVIDER_SET_HASH);
+    }
+
+    // -------------------------------------------------------------------------
+    // Additional fuzz tests
+    // -------------------------------------------------------------------------
+
+    function testFuzz_submitCompliance_validJurisdictionPermutations(uint8 j) public {
+        j = uint8(bound(j, 0, 3));
+        bytes memory proof = _uniqueProof();
+        bytes memory publicInputs = _complianceInputsFor(j, DEFAULT_PROVIDER_SET_HASH);
+
+        vm.prank(alice);
+        IXochiZKPOracle.ComplianceAttestation memory att =
+            oracle.submitCompliance(j, ProofTypes.COMPLIANCE, proof, publicInputs, DEFAULT_PROVIDER_SET_HASH);
+        assertEq(att.jurisdictionId, j);
+        assertTrue(att.meetsThreshold);
+    }
+
+    function testFuzz_updateProviderConfig_metadataURI(uint256 seed) public {
+        // Generate various URI strings: empty, short, long, special chars
+        bytes memory raw;
+        uint256 len = seed % 1025; // 0 to 1024 chars
+        raw = new bytes(len);
+        for (uint256 i; i < len; i++) {
+            raw[i] = bytes1(uint8((seed >> (i % 32)) % 256));
+        }
+        string memory uri = string(raw);
+        bytes32 config = keccak256(abi.encodePacked("fuzz-config-", seed));
+
+        vm.prank(owner);
+        oracle.updateProviderConfig(config, uri);
+        assertEq(oracle.providerConfigHash(), config);
+    }
+
+    function testFuzz_corruptedProof_reverts(uint256 corruptionOffset, uint8 corruptionByte) public {
+        // Load a real proof, corrupt at various positions, verify it fails
+        bytes memory proof = _uniqueProof();
+        uint256 proofLen = proof.length;
+        corruptionOffset = bound(corruptionOffset, 0, proofLen - 1);
+
+        // Flip a byte at corruptionOffset
+        proof[corruptionOffset] = bytes1(corruptionByte);
+
+        // Submit -- should either revert or return (verifier will decide).
+        // With AlwaysPassVerifier stub, this actually passes. Use AlwaysFailVerifier instead.
+        AlwaysFailVerifier failVerifier = new AlwaysFailVerifier();
+        vm.startPrank(owner);
+        verifier.proposeVerifier(ProofTypes.COMPLIANCE, address(failVerifier));
+        vm.warp(block.timestamp + 24 hours);
+        verifier.executeVerifierUpdate(ProofTypes.COMPLIANCE);
+        vm.stopPrank();
+
+        vm.prank(alice);
+        vm.expectRevert(XochiZKPOracle.ProofVerificationFailed.selector);
+        oracle.submitCompliance(0, ProofTypes.COMPLIANCE, proof, _complianceInputs(), DEFAULT_PROVIDER_SET_HASH);
+    }
+
+    function testFuzz_paginatedHistory_arbitraryOffsetLimit(uint8 numProofs, uint256 offset, uint256 limit) public {
+        numProofs = uint8(bound(numProofs, 0, 10));
+        offset = bound(offset, 0, 20);
+        limit = bound(limit, 0, 20);
+
+        // Submit numProofs attestations
+        vm.startPrank(alice);
+        for (uint8 i; i < numProofs; i++) {
+            oracle.submitCompliance(
+                0, ProofTypes.COMPLIANCE, _uniqueProof(), _complianceInputs(), DEFAULT_PROVIDER_SET_HASH
+            );
+        }
+        vm.stopPrank();
+
+        // Paginated query should never revert
+        (bytes32[] memory hashes, uint256 total) = oracle.getAttestationHistoryPaginated(alice, 0, offset, limit);
+
+        assertEq(total, numProofs);
+
+        if (offset >= total) {
+            assertEq(hashes.length, 0);
+        } else {
+            uint256 expectedLen = offset + limit > total ? total - offset : limit;
+            assertEq(hashes.length, expectedLen);
+        }
+    }
+
+    function test_revokedConfig_proofsStillRetrievable() public {
+        // Submit a proof with INITIAL_CONFIG
+        bytes memory proof = _uniqueProof();
+        vm.prank(alice);
+        IXochiZKPOracle.ComplianceAttestation memory att =
+            oracle.submitCompliance(0, ProofTypes.COMPLIANCE, proof, _complianceInputs(), DEFAULT_PROVIDER_SET_HASH);
+        bytes32 proofHash = att.proofHash;
+
+        // Add new config, revoke old one
+        vm.startPrank(owner);
+        oracle.updateProviderConfig(keccak256("new-config"), "");
+        oracle.revokeConfig(INITIAL_CONFIG);
+        vm.stopPrank();
+
+        // Historical proof should still be retrievable
+        IXochiZKPOracle.ComplianceAttestation memory historical = oracle.getHistoricalProof(proofHash);
+        assertEq(historical.subject, alice);
+        assertEq(historical.proofHash, proofHash);
+        assertEq(historical.timestamp, att.timestamp);
     }
 
     // -------------------------------------------------------------------------

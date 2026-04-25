@@ -286,3 +286,30 @@ fn test_round_amounts_all_round() {
 
     main(amounts, timestamps, 4, ANALYSIS_ROUND_AMOUNT, false, 10000, 3600, tx_hash, 0xdead);
 }
+
+#[test]
+fn test_structuring_max_threshold_single_tx() {
+    // Single transaction at MAX_REPORTING_THRESHOLD with amount well below floor.
+    // floor = 204962515653461695 * 90 / 100 = 184466264088115525
+    // amount 100 < floor -> not suspicious -> clean
+    let amounts: [u64; 16] = [100, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1700000000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    let tx_hash = compute_tx_set_hash(amounts, timestamps);
+
+    main(amounts, timestamps, 1, ANALYSIS_STRUCTURING, true, MAX_REPORTING_THRESHOLD, 3600, tx_hash, 0xdead);
+}
+
+#[test]
+fn test_structuring_max_threshold_single_tx_suspicious() {
+    // Single transaction with amount at the floor value (suspicious range).
+    // floor = 204962515653461695 * 90 / 100 = 184466264088115525
+    // amount == floor -> in [floor, threshold) -> suspicious
+    // 1 suspicious out of 1 total: half = (1+1)/2 = 1, suspicious_count(1) < 1 is false -> not clean
+    let amounts: [u64; 16] = [184466264088115525, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let timestamps: [u64; 16] = [1700000000, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+
+    let tx_hash = compute_tx_set_hash(amounts, timestamps);
+
+    main(amounts, timestamps, 1, ANALYSIS_STRUCTURING, false, MAX_REPORTING_THRESHOLD, 3600, tx_hash, 0xdead);
+}

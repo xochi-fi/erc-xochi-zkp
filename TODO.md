@@ -139,20 +139,20 @@ Prerequisite: CI green.
 
 ### 2. Timelock + multi-sig for admin ops
 
-Prerequisite: testnet deployment validated.
+XochiTimelock contract deployed, tested. Remaining:
 
-- [ ] TimelockController for admin operations (verifier updates, TTL changes, config updates)
-- [ ] Minimum delay: 24h for verifier updates, 6h for TTL/config
-- [ ] Safe multi-sig as timelock proposer (2-of-3 minimum)
-- [ ] Update Oracle + Verifier ownership to timelock
+- [x] TimelockController for admin operations (verifier updates, TTL changes, config updates)
+- [x] Minimum delay: 24h for verifier updates, 6h for TTL/config
+- [ ] Safe multi-sig as timelock proposer (2-of-3 minimum) -- deployment config
+- [ ] Update Oracle + Verifier ownership to timelock -- deployment step
 - [ ] Test timelock flow end-to-end on testnet
 
 ### 3. Gas benchmarks
 
-- [ ] Per-proof-type verification gas (all 6 types, real proofs)
-- [ ] submitCompliance gas breakdown (verify + storage + events)
-- [ ] Batch verification gas scaling curve
-- [ ] Add to CI as regression check (forge snapshot --check)
+- [x] Per-proof-type verification gas (all 6 types, real proofs)
+- [x] submitCompliance gas breakdown (verify + storage + events)
+- [x] Batch verification gas scaling curve
+- [x] Add to CI as regression check (forge snapshot --check)
 
 ### 4. Documentation site
 

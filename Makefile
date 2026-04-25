@@ -1,4 +1,4 @@
-.PHONY: build test test-sol test-noir test-sdk test-xochi-sdk test-all fmt fmt-check lint snapshot fixtures clean help
+.PHONY: build test test-sol test-noir test-sdk test-xochi-sdk test-all fmt fmt-check lint snapshot benchmark fixtures clean help
 
 FOUNDRY_BIN := $(HOME)/.config/.foundry/bin
 FORGE := $(FOUNDRY_BIN)/forge
@@ -35,7 +35,7 @@ test-sdk: ## Run TS consumer SDK tests (noir_js + bb.js + anvil)
 	npm run test:sdk
 
 test-xochi-sdk: ## Run @xochi/sdk cross-repo tests (requires ../xochi-sdk)
-	npx vitest run test/sdk/xochi-sdk.test.ts test/sdk/settlement-splitting.test.ts
+	npx vitest run --config vitest.cross-repo.config.ts
 
 test-all: test-sol test-noir test-sdk ## Run all tests
 
@@ -56,6 +56,9 @@ fixtures: ## Generate proof fixtures for all circuits
 
 snapshot: ## Capture gas snapshot
 	$(FORGE) snapshot
+
+benchmark: ## Run gas benchmarks with report
+	$(FORGE) test --match-contract GasBenchmark -vvv --gas-report
 
 # ── Clean ────────────────────────────────────────────────────
 

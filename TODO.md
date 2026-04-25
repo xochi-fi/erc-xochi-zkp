@@ -2,17 +2,16 @@
 
 ## Current Status
 
-- 229/229 Solidity tests pass (59 verifier + 116 oracle + 41 registry + 5 invariant + 8 ProofTypes; 10 integration tests need fixture regen)
+- 308/308 Solidity tests pass (72 verifier + 122 oracle + 41 registry + 5 invariant + 8 ProofTypes + 16 integration + 22 timelock + 16 gas benchmark + 6 ProofTypes fuzz)
 - 70/70 Noir circuit tests pass (7 packages: shared 11, compliance 8, risk_score 13, pattern 12, attestation 10, membership 5, non_membership 11)
 - 16/16 xochi e2e tests pass (TS + anvil, all 6 proof types + runtime proving)
-- 28/35 TS consumer SDK tests pass (7 todo; noir_js -> bb.js -> anvil -> on-chain verify)
+- 28/35 TS consumer SDK tests pass (7 todo; noir_js + bb.js + anvil + on-chain verify)
 - 7/7 client SDK tests pass (XochiProver + encoding)
 - EIP draft aligned with implementation
 - Tooling: nargo 1.0.0-beta.20, forge 1.5.1, bb 4.0.0-nightly.20260120
-- Gas snapshot needs update (public input counts changed)
-- Real proof fixtures need regen (submitter field added to all 6 circuits)
-- xochi integration: shared oracle ABI, worker on-chain verification, useCompliance hook, real ZK proving
-- Client SDK: `@xochi/sdk` in ../xochi-sdk (XochiProver, typed input builders, 3 circuit loaders)
+- CI green (solidity + circuits + sdk jobs)
+- Gas benchmarks: ~2.43M verify, ~2.85M submit, linear batch scaling
+- Client SDK: `@xochi/sdk` at github:xochi-fi/xochi-sdk
 
 ## Completed
 
@@ -46,31 +45,22 @@
 - Pattern time_window minimum: MIN_TIME_WINDOW (3600s) enforced in Oracle
 - proofType in ComplianceAttestation: struct field + checkComplianceByType() query
 - Noir u1 -> bool migration (nargo 1.0.0-beta.20 compat)
-</details>
-
-<details>
-<summary>Test coverage</summary>
-
-- Proof replay, jurisdiction mismatch, providerSetHash mismatch
-- Unaligned public inputs rejection
-- Merkle root + reporting threshold validation
-- Cross-type proof replay allowed (different hash)
-- TTL boundary precision, config revocation
-- View verifier prevents reentrancy (TOCTOU test)
-- Fuzz: expired attestation, replay, attestation fields, revoked config, encoding round trips
-- Integration tests with real proofs for all 6 circuits
-- Circuit main() tests for all 6 circuits
+- Verifier code existence check: setVerifierInitial/proposeVerifier reject EOAs (NotAContract error)
+- Per-proof-type pause: pauseProofType/unpauseProofType on both Verifier and Oracle
+- Emergency verifier revocation: revokeVerifierVersion blocks compromised versions
 </details>
 
 <details>
 <summary>Infrastructure + integrations</summary>
 
 - generate-fixtures.sh (compile, prove, verify, generate Solidity verifiers)
-- Makefile with build/test/lint targets, pre-commit hooks (forge fmt check)
+- Makefile with build/test/lint/benchmark targets, pre-commit hooks (forge fmt check)
 - xochi e2e harness, shared oracle module, worker verification, useCompliance hook
 - Runtime proof generation in xochi e2e (replaced fixture-loading)
 - TS consumer SDK test, client SDK repo (@xochi/sdk)
 - CI workflow (GitHub Actions): solidity + circuits + sdk jobs, nargo 1.0.0-beta.20
+- XochiTimelock: 2-tier delay (24h verifier, 6h config), proposer/guardian roles
+- Gas benchmarks: per-proof-type verify/submit, batch scaling curve, CI regression check
 </details>
 
 <details>
@@ -132,29 +122,14 @@ Prerequisite: CI green.
 - [ ] Deploy generated verifiers (6 contracts per chain)
 - [ ] Deploy XochiZKPVerifier, register all 6 per-type verifiers
 - [ ] Deploy XochiZKPOracle with initial config hash
+- [ ] Deploy XochiTimelock with Safe multi-sig as proposer
+- [ ] Transfer Verifier + Oracle ownership to timelock
 - [ ] Register initial merkle roots + reporting thresholds
 - [ ] Verify all contracts on Etherscan/Basescan
 - [ ] Smoke test: submit a real compliance proof on testnet
 - [ ] Document deployed addresses in README
 
-### 2. Timelock + multi-sig for admin ops
-
-XochiTimelock contract deployed, tested. Remaining:
-
-- [x] TimelockController for admin operations (verifier updates, TTL changes, config updates)
-- [x] Minimum delay: 24h for verifier updates, 6h for TTL/config
-- [ ] Safe multi-sig as timelock proposer (2-of-3 minimum) -- deployment config
-- [ ] Update Oracle + Verifier ownership to timelock -- deployment step
-- [ ] Test timelock flow end-to-end on testnet
-
-### 3. Gas benchmarks
-
-- [x] Per-proof-type verification gas (all 6 types, real proofs)
-- [x] submitCompliance gas breakdown (verify + storage + events)
-- [x] Batch verification gas scaling curve
-- [x] Add to CI as regression check (forge snapshot --check)
-
-### 4. Documentation site
+### 2. Documentation site
 
 - [ ] EIP spec as primary reference
 - [ ] Integration guide (SDK usage, proof generation, on-chain verification)
@@ -169,6 +144,17 @@ XochiTimelock contract deployed, tested. Remaining:
 - [ ] Provider signal mock server for local development
 - [ ] Formal verification of jurisdiction threshold logic
 
+## Gas benchmarks
+
+| Operation | Gas | Notes |
+|-----------|-----|-------|
+| verifyProof (any type) | ~2.43M | UltraHonk verification dominates |
+| submitCompliance | ~2.85M | +380K Oracle overhead (storage + events) |
+| batch verify x1 | 2.86M | Baseline |
+| batch verify x2 | 4.84M | ~2.42M/proof |
+| batch verify x5 | 12.07M | ~2.41M/proof |
+| batch verify x10 | 24.12M | ~2.41M/proof (linear) |
+
 ## Design decisions (documented, not bugs)
 
 - **meetsThreshold always true**: Failed proofs revert at verifier, so only compliant proofs are recorded. Field kept for checkCompliance() query interface.
@@ -180,3 +166,4 @@ XochiTimelock contract deployed, tested. Remaining:
 - **verifier immutable on Oracle**: XochiZKPVerifier address is immutable. Individual per-type verifiers are upgradeable via setVerifier().
 - **Circuit names match ProofTypes**: Circuit directories (pattern, attestation) match Solidity ProofTypes constants 1:1. Previously `anti_structuring` and `tier_verification`, renamed for ontology alignment.
 - **compliance vs risk_score**: Both use `compute_risk_score()` from shared. Compliance is the primary jurisdiction-aware proof. Risk score is a raw scoring primitive for custom integrations (GT/LT/range, no jurisdiction). Intentional composition, not duplication.
+- **Double timelock for verifier updates**: External XochiTimelock (24h) + internal verifier timelock (24h) = 48h total. Defense-in-depth: even if the timelock controller is compromised, the verifier's internal timelock provides a second layer. Emergency bypass via `revokeVerifierVersion` and `pauseProofType` (no timelock).

@@ -16,7 +16,7 @@ This is distinct from view keys (Railgun, Panther) where you trade privately and
 | Risk Score     | 0x02 | "Score > X" or "Score in [X,Y]"   | Exact score         | risk_score     |
 | Pattern        | 0x03 | "No structuring detected"         | Transaction history | pattern        |
 | Attestation    | 0x04 | "Valid credential exists"         | Credential details  | attestation    |
-| Membership     | 0x05 | "Address in authorized set S"     | Which element       | membership     |
+| Membership     | 0x05 | "Address in authorized set S"     | Specific Tier       | membership     |
 | Non-membership | 0x06 | "Address NOT in sanctions list S" | List contents       | non_membership |
 
 ## How it works
@@ -123,7 +123,7 @@ Standalone immutable contract that links split settlement proofs to a tradeId (X
 
 ## Jurisdiction thresholds
 
-Risk scores are in basis points (0-10000 = 0.00%-100.00%). Thresholds are published on-chain.
+Risk scores are in basis points (0-10000 = 0.00%-100.00%) and reflect the level of potentially suspicious activity detected on-chain and via provider attestations. Thresholds are published on-chain.
 
 | Jurisdiction | Low        | Medium    | High (filing trigger) |
 | ------------ | ---------- | --------- | --------------------- |
